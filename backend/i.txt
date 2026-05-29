@@ -1,0 +1,12 @@
+PORT=4000
+NODE_ENV=development
+JWT_SECRET=tn15_secret_key
+
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=Sakthimadhu04@
+MYSQL_DATABASE=tn15
+
+WEB_ORIGIN=http://localhost:5173
+ADMIN_ORIGIN=http://localhost:5174
