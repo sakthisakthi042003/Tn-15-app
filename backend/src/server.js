@@ -15,17 +15,11 @@ const app = express();
 app.use(
   cors({
     origin: function(origin, callback) {
-      // Allow all localhost origins during development
-      if (!origin || origin.startsWith('http://localhost')) {
-        callback(null, true)
-      } else {
-        callback(new Error('Not allowed by CORS'))
-      }
+      callback(null, true)
     },
     credentials: true,
   })
 );
-
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (req, res) => res.send("TN 15 backend running"));

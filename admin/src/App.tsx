@@ -133,7 +133,7 @@ async function loadData() {
       <div className="login-wrap">
         <div className="login-brand">TN<span className="acc">15</span></div>
         <div className="login-title">Admin Panel</div>
-        <div className="login-sub">Bike & Auto Taxi — Kallakurichii</div>
+        <div className="login-sub">Bike & Auto Taxi — Kallakurichi</div>
         <div className="login-card">
           <input className="adm-inp" placeholder="Admin phone" value={adminPhone} onChange={e => setAdminPhone(e.target.value)} />
           <input className="adm-inp" type="password" placeholder="Password" value={adminPass} onChange={e => setAdminPass(e.target.value)}
