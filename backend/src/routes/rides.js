@@ -6,6 +6,11 @@ const { authRequired, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 
+// Generate 4 digit OTP
+function generateOTP() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
 function estimateFare(vehicleType, km) {
   const vt = vehicleType === "auto" ? "auto" : "bike";
   const fare = memory.fares[vt];
@@ -19,7 +24,6 @@ router.post(
   asyncHandler(async (req, res) => {
     const { vehicleType, km } = req.body ?? {};
     if (km === undefined) return res.status(400).json({ error: "km required" });
-    // If DB is up, load fares from DB (but keep memory fallback)
     if (await repo.isDbUp()) {
       const fares = await repo.getFares();
       if (fares.bike && fares.auto) memory.fares = fares;
@@ -75,7 +79,7 @@ router.post(
       vehicleType: vt,
       km: distance,
       fare: fare ? { total: fare.total } : null,
-      status: "requested", // requested | accepted | completed | cancelled
+      status: "requested",
       driverId: null,
       createdAt: new Date().toISOString(),
     };
@@ -100,6 +104,8 @@ router.get(
           km: r.km,
           status: r.status,
           driverId: r.driverId,
+          otp: r.otp,
+          otpVerified: r.otp_verified,
           createdAt: new Date(r.createdAt).toISOString(),
           fare: r.fareTotal === null ? null : { total: r.fareTotal },
         }));
@@ -154,28 +160,32 @@ router.get(
       }));
       return res.json({ rides });
     }
-
     const rides = [...memory.rides.values()].filter((r) => r.status === "requested");
     return res.json({ rides });
   })
 );
 
-// Driver accepts a ride
+// Driver accepts a ride — generates OTP
 router.post(
   "/driver/rides/:rideId/accept",
   authRequired,
   requireRole("driver"),
   asyncHandler(async (req, res) => {
+    const otp = generateOTP();
     if (await repo.isDbUp()) {
       const driver = await repo.getDriverByUserId(req.user.sub);
       if (!driver) return res.status(400).json({ error: "driver profile missing" });
       const ok = await repo.acceptRide({ rideId: req.params.rideId, driverId: driver.id });
       if (!ok) return res.status(409).json({ error: "ride not available" });
+      // Save OTP to database
+      const pool = require("../db/pool").getPool();
+      await pool.query("UPDATE rides SET otp = ? WHERE id = ?", [otp, req.params.rideId]);
       return res.json({
         ride: {
           id: req.params.rideId,
           status: "accepted",
           driverId: driver.id,
+          otp,
         },
       });
     }
@@ -187,10 +197,37 @@ router.post(
     if (!driver) return res.status(400).json({ error: "driver profile missing" });
     ride.status = "accepted";
     ride.driverId = driver.id;
+    ride.otp = otp;
     memory.rides.set(ride.id, ride);
     return res.json({ ride });
   })
 );
 
-module.exports = { ridesRouter: router };
+// Driver verifies OTP to start ride
+router.post(
+  "/driver/rides/:rideId/verify-otp",
+  authRequired,
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    const { otp } = req.body ?? {};
+    if (!otp) return res.status(400).json({ error: "OTP required" });
 
+    if (await repo.isDbUp()) {
+      const pool = require("../db/pool").getPool();
+      const [rows] = await pool.query(
+        "SELECT otp FROM rides WHERE id = ?",
+        [req.params.rideId]
+      );
+      if (!rows[0]) return res.status(404).json({ error: "ride not found" });
+      if (rows[0].otp !== otp) return res.status(400).json({ error: "Invalid OTP" });
+      await pool.query(
+        "UPDATE rides SET otp_verified = 1, status = 'completed' WHERE id = ?",
+        [req.params.rideId]
+      );
+      return res.json({ ok: true, message: "OTP verified! Ride started." });
+    }
+    return res.json({ ok: true });
+  })
+);
+
+module.exports = { ridesRouter: router };
