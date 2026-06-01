@@ -111,7 +111,7 @@ async function createRide({ passengerUserId, pickup, dropoff, vehicleType, km, f
 async function listOpenRides() {
   const pool = getPool();
   const [rows] = await pool.query(
-    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, created_at AS createdAt FROM rides WHERE status = 'requested' ORDER BY created_at DESC"
+    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, otp, otp_verified, created_at AS createdAt FROM rides WHERE status = 'requested' ORDER BY created_at DESC"
   );
   return rows.map((r) => ({
     ...r,
@@ -123,7 +123,7 @@ async function listOpenRides() {
 async function listRidesForPassenger(userId) {
   const pool = getPool();
   const [rows] = await pool.query(
-    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, created_at AS createdAt FROM rides WHERE passenger_user_id = ? ORDER BY created_at DESC",
+    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, otp, otp_verified, created_at AS createdAt FROM rides WHERE passenger_user_id = ? ORDER BY created_at DESC",
     [userId]
   );
   return rows.map((r) => ({
@@ -136,7 +136,7 @@ async function listRidesForPassenger(userId) {
 async function listRidesForDriver(driverId) {
   const pool = getPool();
   const [rows] = await pool.query(
-    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, created_at AS createdAt FROM rides WHERE driver_id = ? ORDER BY created_at DESC",
+    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, otp, otp_verified, created_at AS createdAt FROM rides WHERE driver_id = ? ORDER BY created_at DESC",
     [driverId]
   );
   return rows.map((r) => ({
@@ -158,7 +158,7 @@ async function acceptRide({ rideId, driverId }) {
 async function listAllRides() {
   const pool = getPool();
   const [rows] = await pool.query(
-    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, created_at AS createdAt FROM rides ORDER BY created_at DESC"
+    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, otp, otp_verified, created_at AS createdAt FROM rides ORDER BY created_at DESC"
   );
   return rows.map((r) => ({
     ...r,
@@ -183,4 +183,3 @@ module.exports = {
   acceptRide,
   listAllRides,
 };
-
