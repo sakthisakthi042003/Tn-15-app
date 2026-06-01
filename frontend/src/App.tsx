@@ -11,6 +11,7 @@ import {
   myRides,
   openRides,
   register,
+  verifyOTP,
   type Ride,
   type Role,
 } from './api'
@@ -50,14 +51,17 @@ const KK_LOCATIONS: Record<string, [number, number]> = {
   'Tirukoilur':               [11.9600, 79.1900],
   'Vridhachalam':             [11.5200, 79.3100],
   'Rishivandiyam':            [11.7900, 78.9400],
+  'Kallakurichi Collectorate':[11.7420, 79.0090],
+  'TNEB Office':              [11.7360, 79.0040],
+  'Kallakurichi Court':       [11.7400, 79.0070],
+  'Anna Nagar Kallakurichi':  [11.7430, 79.0100],
+  'Thiyagadurgam':            [11.8200, 79.0700],
 }
 
 type Screen = 'home' | 'book' | 'driver' | 'rides' | 'help' | 'auth'
 
 function getCoords(location: string): [number, number] | undefined {
-  // Check exact match first
   if (KK_LOCATIONS[location]) return KK_LOCATIONS[location]
-  // Check partial match
   for (const [key, coords] of Object.entries(KK_LOCATIONS)) {
     if (key.toLowerCase().includes(location.toLowerCase()) ||
         location.toLowerCase().includes(key.toLowerCase())) {
@@ -89,10 +93,11 @@ export default function App() {
   const [open, setOpen] = useState<Ride[]>([])
   const [loading, setLoading] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState<'pickup' | 'drop' | null>(null)
+  const [otpInputs, setOtpInputs] = useState<Record<string, string>>({})
+  const [otpLoading, setOtpLoading] = useState<Record<string, boolean>>({})
 
   const token = useMemo(() => localStorage.getItem('tn15_token'), [])
 
-  // Map coordinates
   const pickupCoords = getCoords(pickup)
   const dropCoords = getCoords(drop)
 
@@ -186,6 +191,22 @@ export default function App() {
     setLoading(false)
   }
 
+  async function handleVerifyOTP(rideId: string) {
+    const otp = otpInputs[rideId]
+    if (!otp || otp.length !== 4) { setStatus('Enter 4 digit OTP'); return }
+    setOtpLoading(prev => ({ ...prev, [rideId]: true }))
+    try {
+      const r = await verifyOTP(rideId, otp)
+      if (r.ok) {
+        setStatus('OTP verified! Ride started! 🎉')
+        await refresh()
+      }
+    } catch (e: unknown) {
+      setStatus(e instanceof Error ? e.message : 'Invalid OTP')
+    }
+    setOtpLoading(prev => ({ ...prev, [rideId]: false }))
+  }
+
   const statusColor = (s: string) => {
     if (s === 'pending' || s === 'requested') return '#FFB800'
     if (s === 'accepted') return '#00D97E'
@@ -196,7 +217,7 @@ export default function App() {
   const filteredLocations = (query: string) =>
     Object.keys(KK_LOCATIONS).filter(l =>
       l.toLowerCase().includes(query.toLowerCase())
-    ).slice(0, 5)
+    ).slice(0, 6)
 
   return (
     <div className="app">
@@ -252,7 +273,6 @@ export default function App() {
             {role && <div className="hero-sub">Hello, <b>{authedPhone}</b> · {role}</div>}
           </div>
 
-          {/* Map preview on home */}
           <div style={{ padding: '0 20px 16px' }}>
             <MapView pickup="Kallakurichi Bus Stand" drop="" pickupCoords={[11.7393, 79.0066]} />
           </div>
@@ -302,7 +322,6 @@ export default function App() {
         <div className="screen fade-in">
           <button className="back-btn" onClick={() => setScreen('home')}>← Back</button>
           <div className="book-card">
-            {/* Route inputs with suggestions */}
             <div className="route-inputs">
               <div className="ri-row" style={{ position: 'relative' }}>
                 <span className="ri-dot green" />
@@ -343,14 +362,8 @@ export default function App() {
               )}
             </div>
 
-            {/* Map showing route */}
             {(pickup || drop) && (
-              <MapView
-                pickup={pickup}
-                drop={drop}
-                pickupCoords={pickupCoords}
-                dropCoords={dropCoords}
-              />
+              <MapView pickup={pickup} drop={drop} pickupCoords={pickupCoords} dropCoords={dropCoords} />
             )}
 
             <div className="vh-row">
@@ -399,14 +412,8 @@ export default function App() {
                 </div>
                 <div className="dc-route"><span className="ri-dot green sm" /> {r.pickup}</div>
                 <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot red sm" /> {r.drop}</div>
-                {/* Map for driver */}
                 <div style={{ margin: '12px 0' }}>
-                  <MapView
-                    pickup={r.pickup}
-                    drop={r.drop}
-                    pickupCoords={getCoords(r.pickup)}
-                    dropCoords={getCoords(r.drop)}
-                  />
+                  <MapView pickup={r.pickup} drop={r.drop} pickupCoords={getCoords(r.pickup)} dropCoords={getCoords(r.drop)} />
                 </div>
                 <div className="dc-row">
                   <span className="muted-text">{new Date(r.createdAt).toLocaleTimeString()}</span>
@@ -414,6 +421,39 @@ export default function App() {
                 </div>
               </div>
             ))
+          )}
+
+          {/* Accepted rides — OTP verification */}
+          {rides.filter(r => r.status === 'accepted').length > 0 && (
+            <>
+              <div className="sec-title" style={{ padding: '16px 20px 12px' }}>Active rides — Enter OTP</div>
+              {rides.filter(r => r.status === 'accepted').map(r => (
+                <div key={r.id} className="driver-card">
+                  <div className="dc-head">
+                    <span className="dc-type">{r.vehicleType.toUpperCase()}</span>
+                    <span className="ride-badge" style={{ background: '#00D97E22', color: '#00D97E' }}>Accepted</span>
+                  </div>
+                  <div className="dc-route"><span className="ri-dot green sm" /> {r.pickup}</div>
+                  <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot red sm" /> {r.drop}</div>
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>Ask passenger for OTP to start ride:</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        className="inp"
+                        placeholder="Enter 4 digit OTP"
+                        maxLength={4}
+                        value={otpInputs[r.id] ?? ''}
+                        onChange={e => setOtpInputs(prev => ({ ...prev, [r.id]: e.target.value }))}
+                        style={{ fontSize: 20, letterSpacing: 8, textAlign: 'center' }}
+                      />
+                      <button className="btn-accent" onClick={() => handleVerifyOTP(r.id)} disabled={otpLoading[r.id]}>
+                        {otpLoading[r.id] ? '…' : 'Verify'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}
@@ -433,15 +473,47 @@ export default function App() {
                 </div>
                 <div className="dc-route"><span className="ri-dot green sm" />{r.pickup}</div>
                 <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot red sm" />{r.drop}</div>
-                {/* Map for ride */}
                 <div style={{ margin: '12px 0' }}>
-                  <MapView
-                    pickup={r.pickup}
-                    drop={r.drop}
-                    pickupCoords={getCoords(r.pickup)}
-                    dropCoords={getCoords(r.drop)}
-                  />
+                  <MapView pickup={r.pickup} drop={r.drop} pickupCoords={getCoords(r.pickup)} dropCoords={getCoords(r.drop)} />
                 </div>
+
+                {/* OTP Display for passenger */}
+                {r.status === 'accepted' && r.otp && (
+                  <div style={{
+                    background: 'rgba(255,214,0,0.1)',
+                    border: '2px dashed #FFD600',
+                    borderRadius: 12,
+                    padding: '12px 16px',
+                    margin: '10px 0',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>
+                      🔐 Your OTP — Share with driver
+                    </div>
+                    <div style={{ fontSize: 40, fontWeight: 800, color: '#FFD600', letterSpacing: 12 }}>
+                      {r.otp}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                      Driver is on the way!
+                    </div>
+                  </div>
+                )}
+
+                {r.status === 'completed' && r.otp && (
+                  <div style={{
+                    background: 'rgba(108,142,255,0.1)',
+                    border: '1px solid rgba(108,142,255,0.3)',
+                    borderRadius: 12,
+                    padding: '10px 16px',
+                    margin: '10px 0',
+                    textAlign: 'center',
+                    fontSize: 13,
+                    color: '#6C8EFF'
+                  }}>
+                    ✅ Ride completed!
+                  </div>
+                )}
+
                 <div className="dc-row">
                   <span className="muted-text">{new Date(r.createdAt).toLocaleString()}</span>
                   {r.fare?.total && <span className="dc-fare">₹{r.fare.total}</span>}

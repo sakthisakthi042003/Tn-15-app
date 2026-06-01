@@ -72,6 +72,8 @@ export type Ride = {
   driverId: string | null
   createdAt: string
   fare: null | { total: number }
+  otp?: string
+  otpVerified?: number
 }
 
 export async function createRide(input: {
@@ -106,3 +108,10 @@ export async function acceptRide(rideId: string) {
   })
 }
 
+export async function verifyOTP(rideId: string, otp: string) {
+  return api<{ ok: boolean; message: string }>(`/api/driver/rides/${rideId}/verify-otp`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ otp }),
+  })
+}
