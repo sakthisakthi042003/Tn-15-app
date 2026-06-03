@@ -75,7 +75,7 @@ const KK_LOCATIONS: { name: string; coords: [number, number] }[] = [
   { name: 'Rishivandiyam', coords: [11.7900, 78.9400] },
   { name: 'Thiyagadurgam', coords: [11.8200, 79.0700] },
   { name: 'Kachirayipalayam', coords: [11.7300, 79.0150] },
-  { name: 'Karnaapuram', coords: [11.6900, 79.0500] },
+  { name: 'Kammapuram', coords: [11.6900, 79.0500] },
   { name: 'Periyavadavadi', coords: [11.8100, 79.0300] },
   { name: 'Manalurpet', coords: [11.8500, 79.0900] },
   { name: 'Nathamedu', coords: [11.7200, 79.0200] },
@@ -99,11 +99,9 @@ function getCoordsForLocation(name: string): [number, number] | undefined {
 }
 
 type Screen = 'home' | 'search' | 'confirm' | 'rides' | 'profile' | 'auth'
-type AuthStep = 'phone' | 'password' | 'register'
 
-export default function App() {
+export default function PassengerApp() {
   const [screen, setScreen] = useState<Screen>('home')
-  const [authStep, setAuthStep] = useState<AuthStep>('phone')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -179,7 +177,7 @@ export default function App() {
       await register({ phone, password, role: 'passenger', name })
       showToast('Registered! Please login.')
       setIsRegistering(false)
-      setAuthStep('password')
+    
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Registration failed')
     }
