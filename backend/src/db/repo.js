@@ -87,7 +87,7 @@ async function upsertFares({ bike, auto }) {
   }
 }
 
-async function createRide({ passengerUserId, pickup, dropoff, vehicleType, km, fareTotal, otp }) {
+async function createRide({ passengerUserId, pickup, dropoff, vehicleType, km, fareTotal }) {
   const pool = getPool();
   const ride = {
     id: makeId("ride"),
@@ -99,15 +99,7 @@ async function createRide({ passengerUserId, pickup, dropoff, vehicleType, km, f
     fareTotal: fareTotal ?? null,
     status: "requested",
     driverId: null,
-    otp: otp ?? null,
     createdAt: new Date().toISOString(),
-  };
-  await pool.query(
-    "INSERT INTO rides (id, passenger_user_id, pickup, dropoff, vehicle_type, km, fare_total, status, otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [ride.id, ride.passengerUserId, ride.pickup, ride.dropoff, ride.vehicleType, ride.km, ride.fareTotal, ride.status, ride.otp]
-  );
-  return ride;
-
   };
   await pool.query(
     "INSERT INTO rides (id, passenger_user_id, pickup, dropoff, vehicle_type, km, fare_total, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
