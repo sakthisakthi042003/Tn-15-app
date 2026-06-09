@@ -1,9 +1,13 @@
 async function sendOTP(phone, otp) {
   const key = process.env.FAST2SMS_KEY
-  if (!key) { console.log(`SMS OTP for ${phone}: ${otp}`); return }
-  
+  if (!key) {
+    console.log(`SMS OTP for ${phone}: ${otp}`)
+    return
+  }
   try {
-    const res = await fetch(`https://www.fast2sms.com/dev/bulkV2?authorization=${key}&route=otp&variables_values=${otp}&flash=0&numbers=${phone}`)
+    const message = `Your TN15 OTP is ${otp}. Valid for 5 minutes. Do not share with anyone.`
+    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${key}&route=q&message=${encodeURIComponent(message)}&language=english&flash=0&numbers=${phone}`
+    const res = await fetch(url)
     const data = await res.json()
     console.log('SMS sent:', data)
     return data
