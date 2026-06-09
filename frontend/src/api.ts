@@ -6,7 +6,7 @@ const API_BASE =
 
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('tn15_token')
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
   return headers
 }
@@ -14,10 +14,7 @@ function authHeaders(): Record<string, string> {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
   })
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(json?.error ?? 'Request failed')
@@ -26,6 +23,34 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function health() {
   return api<{ ok: boolean; db: string }>('/api/health')
+}
+
+export async function sendOTP(phone: string) {
+  return api<{ ok: boolean; message: string }>('/api/auth/send-otp', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+}
+
+export async function verifyOTP(phone: string, otp: string) {
+  return api<{ ok: boolean; message: string }>('/api/auth/verify-otp', {
+    method: 'POST',
+    body: JSON.stringify({ phone, otp }),
+  })
+}
+
+export async function forgotPassword(phone: string) {
+  return api<{ ok: boolean; message: string }>('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+}
+
+export async function resetPassword(phone: string, otp: string, newPassword: string) {
+  return api<{ ok: boolean; message: string }>('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ phone, otp, newPassword }),
+  })
 }
 
 export async function register(input: {
@@ -47,12 +72,6 @@ export async function login(input: { phone: string; password: string }) {
     method: 'POST',
     body: JSON.stringify(input),
   })
-}
-
-export async function getFares() {
-  return api<{ fares: Record<string, { baseFare: number; perKm: number }> }>(
-    '/api/fares',
-  )
 }
 
 export async function estimateFare(input: { vehicleType: string; km: number }) {
@@ -108,7 +127,7 @@ export async function acceptRide(rideId: string) {
   })
 }
 
-export async function verifyOTP(rideId: string, otp: string) {
+export async function verifyRideOTP(rideId: string, otp: string) {
   return api<{ ok: boolean; message: string }>(`/api/driver/rides/${rideId}/verify-otp`, {
     method: 'POST',
     headers: authHeaders(),

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import 'leaflet/dist/leaflet.css'
 import MapView from './mapview'
+
 import {
   createRide,
   estimateFare,
@@ -9,6 +10,10 @@ import {
   login,
   myRides,
   register,
+  sendOTP,
+  verifyOTP as verifyRegOTP,
+  forgotPassword,
+  resetPassword,
   type Ride,
 } from './api'
 
@@ -96,9 +101,7 @@ function getCoordsForLocation(name: string): [number, number] | undefined {
   return found?.coords
 }
 
-/* ─── Haversine distance calculator ─────────────────────────────── */
 function calculateDistance(coord1: [number, number], coord2: [number, number]): number {
-  
   const dLat = (coord2[0] - coord1[0]) * Math.PI / 180
   const dLon = (coord2[1] - coord1[1]) * Math.PI / 180
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -109,19 +112,26 @@ function calculateDistance(coord1: [number, number], coord2: [number, number]): 
 }
 
 type Screen = 'home' | 'search' | 'confirm' | 'rides' | 'profile' | 'auth'
+type AuthMode = 'login' | 'register_phone' | 'register_otp' | 'register_password' | 'forgot_phone' | 'forgot_otp' | 'forgot_password'
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [loggedIn, setLoggedIn] = useState(false)
   const [userPhone, setUserPhone] = useState('')
-  const [isRegistering, setIsRegistering] = useState(false)
-  const [phone, setPhone] = useState('')
-  const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [backend, setBackend] = useState<{ ok: boolean } | null>(null)
 
+  // Auth fields
+  const [phone, setPhone] = useState('')
+  const [name, setName] = useState('')
+  const [otp, setOtp] = useState('')
+  const [password, setPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [resendTimer, setResendTimer] = useState(0)
+
+  // Booking
   const [pickup, setPickup] = useState('')
   const [drop, setDrop] = useState('')
   const [pickupCoords, setPickupCoords] = useState<[number, number] | undefined>()
@@ -139,24 +149,25 @@ export default function App() {
     const role = localStorage.getItem('tn15_role')
     const p = localStorage.getItem('tn15_phone')
     if (token && role === 'passenger' && p) {
-      setLoggedIn(true)
-      setUserPhone(p)
-      loadRides()
+      setLoggedIn(true); setUserPhone(p); loadRides()
     }
   }, [])
 
+  // Resend timer
+  useEffect(() => {
+    if (resendTimer > 0) {
+      const t = setTimeout(() => setResendTimer(r => r - 1), 1000)
+      return () => clearTimeout(t)
+    }
+  }, [resendTimer])
+
   async function loadRides() {
-    try {
-      const r = await myRides()
-      setRides(r.rides)
-    } catch {}
+    try { const r = await myRides(); setRides(r.rides) } catch {}
   }
 
-  function showToast(msg: string) {
-    setStatus(msg)
-    setTimeout(() => setStatus(''), 3000)
-  }
+  function showToast(msg: string) { setStatus(msg); setTimeout(() => setStatus(''), 4000) }
 
+  // ── AUTH FUNCTIONS ──────────────────────────────────────────────
   async function doLogin() {
     setLoading(true)
     try {
@@ -172,27 +183,86 @@ export default function App() {
     setLoading(false)
   }
 
+  async function doSendOTP() {
+    if (!phone || phone.length !== 10) { showToast('Enter valid 10 digit phone number'); return }
+    setLoading(true)
+    try {
+      await sendOTP(phone)
+      setResendTimer(60)
+      setAuthMode('register_otp')
+      showToast('OTP sent to ' + phone + '! 📱')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed to send OTP') }
+    setLoading(false)
+  }
+
+  async function doVerifyOTP() {
+    if (!otp || otp.length !== 4) { showToast('Enter 4 digit OTP'); return }
+    setLoading(true)
+    try {
+      await verifyRegOTP(phone, otp)
+      setAuthMode('register_password')
+      showToast('OTP verified! ✅')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
+    setLoading(false)
+  }
+
   async function doRegister() {
+    if (!password || password.length < 6) { showToast('Password must be at least 6 characters'); return }
     setLoading(true)
     try {
       await register({ phone, password, role: 'passenger', name })
-      showToast('Registered! Please login.')
-      setIsRegistering(false)
+      showToast('Registered successfully! Please login. 🎉')
+      setAuthMode('login')
+      setOtp(''); setPassword('')
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Registration failed') }
     setLoading(false)
   }
 
-  function doLogout() {
-    localStorage.clear(); setLoggedIn(false); setUserPhone(''); setRides([]); setScreen('home')
+  async function doForgotSendOTP() {
+    if (!phone || phone.length !== 10) { showToast('Enter valid 10 digit phone number'); return }
+    setLoading(true)
+    try {
+      await forgotPassword(phone)
+      setResendTimer(60)
+      setAuthMode('forgot_otp')
+      showToast('OTP sent to ' + phone + '! 📱')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Phone not registered') }
+    setLoading(false)
   }
 
+  async function doForgotVerifyOTP() {
+    if (!otp || otp.length !== 4) { showToast('Enter 4 digit OTP'); return }
+    setLoading(true)
+    try {
+      await verifyRegOTP(phone, otp)
+      setAuthMode('forgot_password')
+      showToast('OTP verified! ✅')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
+    setLoading(false)
+  }
+
+  async function doResetPassword() {
+    if (!newPassword || newPassword.length < 6) { showToast('Password must be at least 6 characters'); return }
+    setLoading(true)
+    try {
+      await resetPassword(phone, otp, newPassword)
+      showToast('Password reset! Please login. 🎉')
+      setAuthMode('login')
+      setOtp(''); setNewPassword('')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Reset failed') }
+    setLoading(false)
+  }
+
+  function doLogout() {
+    localStorage.clear(); setLoggedIn(false); setUserPhone('')
+    setRides([]); setScreen('home')
+  }
+
+  // ── BOOKING FUNCTIONS ───────────────────────────────────────────
   async function calcFare(distance?: number) {
     const d = distance ?? km
     if (!d) return
-    try {
-      const r = await estimateFare({ vehicleType, km: d })
-      setFare(r.estimate.total)
-    } catch {}
+    try { const r = await estimateFare({ vehicleType, km: d }); setFare(r.estimate.total) } catch {}
   }
 
   async function bookRide() {
@@ -202,8 +272,7 @@ export default function App() {
       await createRide({ pickup, drop, vehicleType, km })
       showToast('Ride booked! 🎉')
       setPickup(''); setDrop(''); setPickupCoords(undefined); setDropCoords(undefined); setFare(null); setKm(0)
-      await loadRides()
-      setScreen('rides')
+      await loadRides(); setScreen('rides')
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Booking failed') }
     setLoading(false)
   }
@@ -211,26 +280,13 @@ export default function App() {
   function selectLocation(loc: { name: string; coords: [number, number] }) {
     let newPickupCoords = pickupCoords
     let newDropCoords = dropCoords
-
-    if (activeInput === 'pickup') {
-      setPickup(loc.name)
-      setPickupCoords(loc.coords)
-      newPickupCoords = loc.coords
-    } else {
-      setDrop(loc.name)
-      setDropCoords(loc.coords)
-      newDropCoords = loc.coords
-    }
-
+    if (activeInput === 'pickup') { setPickup(loc.name); setPickupCoords(loc.coords); newPickupCoords = loc.coords }
+    else { setDrop(loc.name); setDropCoords(loc.coords); newDropCoords = loc.coords }
     setSearchQuery('')
-
-    // Auto calculate distance
     if (newPickupCoords && newDropCoords) {
       const dist = calculateDistance(newPickupCoords, newDropCoords)
-      setKm(dist)
-      setTimeout(() => calcFare(dist), 100)
+      setKm(dist); setTimeout(() => calcFare(dist), 100)
     }
-
     setScreen('confirm')
   }
 
@@ -243,6 +299,29 @@ export default function App() {
   }
 
   const suggestions = searchLocations(searchQuery)
+
+  // ── OTP INPUT HELPER ────────────────────────────────────────────
+  const OTPInput = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+      {[0,1,2,3].map(i => (
+        <input key={i} id={`otp-${i}`} className="inp" maxLength={1}
+          value={value[i] ?? ''}
+          style={{ width: 60, textAlign: 'center', fontSize: 28, fontWeight: 800, padding: '12px 0' }}
+          onChange={e => {
+            const val = e.target.value.replace(/\D/g, '')
+            const arr = value.split('')
+            arr[i] = val
+            const next = arr.join('').slice(0, 4)
+            onChange(next)
+            if (val && i < 3) document.getElementById(`otp-${i+1}`)?.focus()
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Backspace' && !value[i] && i > 0) document.getElementById(`otp-${i-1}`)?.focus()
+          }}
+        />
+      ))}
+    </div>
+  )
 
   return (
     <div className="app">
@@ -259,34 +338,124 @@ export default function App() {
           {loggedIn ? (
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>{userPhone}</div>
           ) : (
-            <button className="btn-accent sm" onClick={() => setScreen('auth')}>Login</button>
+            <button className="btn-accent sm" onClick={() => { setAuthMode('login'); setScreen('auth') }}>Login</button>
           )}
         </div>
       </header>
 
-      {/* Auth Screen */}
+      {/* ── AUTH SCREEN ── */}
       {screen === 'auth' && (
         <div className="screen fade-in">
           <div className="auth-card">
-            <div className="auth-title">{isRegistering ? 'Create account' : 'Welcome back'}</div>
-            <div className="auth-sub">Kallakurichi Bike & Auto Taxi</div>
-            {!isRegistering ? (
+
+            {/* LOGIN */}
+            {authMode === 'login' && (
               <>
+                <div className="auth-title">Welcome back 👋</div>
+                <div className="auth-sub">Kallakurichi Bike & Auto Taxi</div>
                 <input className="inp" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
                 <input className="inp" placeholder="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && doLogin()} />
                 <button className="btn-primary full" onClick={doLogin} disabled={loading}>{loading ? 'Logging in…' : 'Login'}</button>
-                <button className="btn-ghost full" onClick={() => setIsRegistering(true)}>New user? Register here</button>
-              </>
-            ) : (
-              <>
-                <input className="inp" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
-                <input className="inp" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
-                <input className="inp" placeholder="Create password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-                <button className="btn-primary full" onClick={doRegister} disabled={loading}>{loading ? 'Registering…' : 'Register'}</button>
-                <button className="btn-ghost full" onClick={() => setIsRegistering(false)}>Already have account? Login</button>
+                <button className="btn-ghost full" onClick={() => { setAuthMode('register_phone'); setPhone(''); setOtp(''); setPassword('') }}>
+                  New user? Register here
+                </button>
+                <button className="btn-ghost full" style={{ color: 'var(--accent)' }} onClick={() => { setAuthMode('forgot_phone'); setPhone('') }}>
+                  Forgot password?
+                </button>
+                <button className="btn-ghost full" onClick={() => setScreen('home')}>← Back</button>
               </>
             )}
-            <button className="btn-ghost full" onClick={() => setScreen('home')} style={{ marginTop: 4 }}>← Back</button>
+
+            {/* REGISTER STEP 1 - Phone & Name */}
+            {authMode === 'register_phone' && (
+              <>
+                <div className="auth-title">Create account</div>
+                <div className="auth-sub">Step 1 of 3 — Enter your details</div>
+                <input className="inp" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
+                <input className="inp" placeholder="Phone number (10 digits)" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
+                <button className="btn-primary full" onClick={doSendOTP} disabled={loading || phone.length !== 10}>
+                  {loading ? 'Sending OTP…' : 'Send OTP 📱'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('login')}>← Back to Login</button>
+              </>
+            )}
+
+            {/* REGISTER STEP 2 - OTP */}
+            {authMode === 'register_otp' && (
+              <>
+                <div className="auth-title">Verify phone 📱</div>
+                <div className="auth-sub">Step 2 of 3 — Enter OTP sent to {phone}</div>
+                <OTPInput value={otp} onChange={setOtp} />
+                <button className="btn-primary full" onClick={doVerifyOTP} disabled={loading || otp.length !== 4}>
+                  {loading ? 'Verifying…' : 'Verify OTP ✅'}
+                </button>
+                {resendTimer > 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                    Resend OTP in {resendTimer}s
+                  </div>
+                ) : (
+                  <button className="btn-ghost full" onClick={doSendOTP} disabled={loading}>Resend OTP</button>
+                )}
+                <button className="btn-ghost full" onClick={() => setAuthMode('register_phone')}>← Back</button>
+              </>
+            )}
+
+            {/* REGISTER STEP 3 - Password */}
+            {authMode === 'register_password' && (
+              <>
+                <div className="auth-title">Set password 🔐</div>
+                <div className="auth-sub">Step 3 of 3 — Create your password</div>
+                <input className="inp" placeholder="Create password (min 6 chars)" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+                <button className="btn-primary full" onClick={doRegister} disabled={loading || password.length < 6}>
+                  {loading ? 'Registering…' : 'Complete Registration 🎉'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('register_otp')}>← Back</button>
+              </>
+            )}
+
+            {/* FORGOT PASSWORD STEP 1 - Phone */}
+            {authMode === 'forgot_phone' && (
+              <>
+                <div className="auth-title">Forgot password? 🔑</div>
+                <div className="auth-sub">Enter your registered phone number</div>
+                <input className="inp" placeholder="Phone number (10 digits)" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
+                <button className="btn-primary full" onClick={doForgotSendOTP} disabled={loading || phone.length !== 10}>
+                  {loading ? 'Sending OTP…' : 'Send OTP 📱'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('login')}>← Back to Login</button>
+              </>
+            )}
+
+            {/* FORGOT PASSWORD STEP 2 - OTP */}
+            {authMode === 'forgot_otp' && (
+              <>
+                <div className="auth-title">Verify phone 📱</div>
+                <div className="auth-sub">Enter OTP sent to {phone}</div>
+                <OTPInput value={otp} onChange={setOtp} />
+                <button className="btn-primary full" onClick={doForgotVerifyOTP} disabled={loading || otp.length !== 4}>
+                  {loading ? 'Verifying…' : 'Verify OTP ✅'}
+                </button>
+                {resendTimer > 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div>
+                ) : (
+                  <button className="btn-ghost full" onClick={doForgotSendOTP} disabled={loading}>Resend OTP</button>
+                )}
+                <button className="btn-ghost full" onClick={() => setAuthMode('forgot_phone')}>← Back</button>
+              </>
+            )}
+
+            {/* FORGOT PASSWORD STEP 3 - New Password */}
+            {authMode === 'forgot_password' && (
+              <>
+                <div className="auth-title">New password 🔐</div>
+                <div className="auth-sub">Enter your new password</div>
+                <input className="inp" placeholder="New password (min 6 chars)" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                <button className="btn-primary full" onClick={doResetPassword} disabled={loading || newPassword.length < 6}>
+                  {loading ? 'Resetting…' : 'Reset Password ✅'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('forgot_otp')}>← Back</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -299,23 +468,19 @@ export default function App() {
             <div className="hero-title">Where to?</div>
             {loggedIn && <div className="hero-sub">Hello, <b>{userPhone}</b> 👋</div>}
           </div>
-
           <div style={{ padding: '0 20px 16px' }}>
             <MapView pickup={pickup || 'Kallakurichi Bus Stand'} drop={drop} pickupCoords={pickupCoords || [11.7393, 79.0066]} dropCoords={dropCoords} />
           </div>
-
-          <div className="rapido-search" onClick={() => { if (!loggedIn) { setScreen('auth'); return } setActiveInput('pickup'); setSearchQuery(''); setScreen('search') }}>
+          <div className="rapido-search" onClick={() => { if (!loggedIn) { setAuthMode('login'); setScreen('auth'); return } setActiveInput('pickup'); setSearchQuery(''); setScreen('search') }}>
             <SearchIcon />
             <span style={{ color: pickup ? 'var(--text)' : 'var(--muted)' }}>{pickup || 'Search pickup location…'}</span>
           </div>
-
           {pickup && (
             <div className="rapido-search" style={{ marginTop: 8 }} onClick={() => { setActiveInput('drop'); setSearchQuery(''); setScreen('search') }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
               <span style={{ color: drop ? 'var(--text)' : 'var(--muted)' }}>{drop || 'Search drop location…'}</span>
             </div>
           )}
-
           <div className="vh-row">
             <button className={`vh-card ${vehicleType === 'bike' ? 'vh-on' : ''}`} onClick={() => { setVehicleType('bike'); if (km > 0) calcFare() }}>
               <BikeIcon /><div className="vh-name">Bike</div>
@@ -326,13 +491,11 @@ export default function App() {
               <div className="vh-eta">{vehicleType === 'auto' && fare ? `₹${fare}` : '—'}</div>
             </button>
           </div>
-
           {pickup && drop && (
             <div style={{ padding: '0 20px' }}>
               <button className="btn-primary full big" onClick={() => setScreen('confirm')}>Confirm Booking →</button>
             </div>
           )}
-
           {rides.length > 0 && (
             <div className="section" style={{ marginTop: 20 }}>
               <div className="sec-title">Recent rides</div>
@@ -362,11 +525,9 @@ export default function App() {
               <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }}><SearchIcon /></div>
             </div>
           </div>
-
           <div style={{ padding: '0 20px 8px', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
             {searchQuery ? 'Search results' : 'Popular in Kallakurichi'}
           </div>
-
           <div style={{ overflow: 'auto' }}>
             {(searchQuery ? suggestions : KK_LOCATIONS.slice(0, 12)).map(loc => (
               <div key={loc.name} className="search-result-item" onClick={() => selectLocation(loc)}>
@@ -388,7 +549,6 @@ export default function App() {
           <button className="back-btn" onClick={() => setScreen('home')}>← Back</button>
           <div className="book-card">
             <div className="sec-title">Confirm your ride</div>
-
             <div className="route-inputs">
               <div className="ri-row" onClick={() => { setActiveInput('pickup'); setSearchQuery(''); setScreen('search') }}>
                 <span className="ri-dot green" />
@@ -406,9 +566,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-
             {(pickup || drop) && <MapView pickup={pickup} drop={drop} pickupCoords={pickupCoords} dropCoords={dropCoords} />}
-
             <div className="vh-row">
               <button className={`vh-card ${vehicleType === 'bike' ? 'vh-on' : ''}`} onClick={() => { setVehicleType('bike'); calcFare() }}>
                 <BikeIcon /><div className="vh-name">Bike</div>
@@ -417,8 +575,6 @@ export default function App() {
                 <AutoIcon /><div className="vh-name">Auto</div>
               </button>
             </div>
-
-            {/* Auto distance & fare display */}
             {km > 0 && (
               <div style={{ background: 'var(--bg3)', borderRadius: 12, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -433,11 +589,7 @@ export default function App() {
                 )}
               </div>
             )}
-
-            {!fare && km > 0 && (
-              <button className="btn-ghost full" onClick={() => calcFare()}>Get fare estimate</button>
-            )}
-
+            {!fare && km > 0 && <button className="btn-ghost full" onClick={() => calcFare()}>Get fare estimate</button>}
             <button className="btn-primary full big" onClick={bookRide} disabled={loading || !pickup || !drop}>
               {loading ? 'Booking…' : `Book ${vehicleType === 'bike' ? '🏍' : '🛺'} Now`}
             </button>
@@ -463,14 +615,8 @@ export default function App() {
                 </div>
                 <div className="dc-route"><span className="ri-dot green sm" /> {r.pickup}</div>
                 <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot red sm" /> {r.drop}</div>
-
-                {/* OTP - shown from ride creation */}
                 {(r.status === 'requested' || r.status === 'accepted') && (r as Ride & { otp?: string }).otp && (
-                  <div style={{
-                    background: r.status === 'accepted' ? 'rgba(255,214,0,0.12)' : 'rgba(255,184,0,0.08)',
-                    border: `2px dashed ${r.status === 'accepted' ? '#FFD600' : '#FFB800'}`,
-                    borderRadius: 14, padding: '14px 16px', margin: '12px 0', textAlign: 'center'
-                  }}>
+                  <div style={{ background: r.status === 'accepted' ? 'rgba(255,214,0,0.12)' : 'rgba(255,184,0,0.08)', border: `2px dashed ${r.status === 'accepted' ? '#FFD600' : '#FFB800'}`, borderRadius: 14, padding: '14px 16px', margin: '12px 0', textAlign: 'center' }}>
                     <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>
                       {r.status === 'accepted' ? '🔐 Share with driver to start ride' : '🔢 Your ride OTP'}
                     </div>
@@ -482,13 +628,9 @@ export default function App() {
                     </div>
                   </div>
                 )}
-
                 {r.status === 'completed' && (
-                  <div style={{ background: 'rgba(108,142,255,0.1)', border: '1px solid rgba(108,142,255,0.3)', borderRadius: 12, padding: '10px 16px', margin: '10px 0', textAlign: 'center', fontSize: 13, color: '#6C8EFF' }}>
-                    ✅ Ride completed!
-                  </div>
+                  <div style={{ background: 'rgba(108,142,255,0.1)', border: '1px solid rgba(108,142,255,0.3)', borderRadius: 12, padding: '10px 16px', margin: '10px 0', textAlign: 'center', fontSize: 13, color: '#6C8EFF' }}>✅ Ride completed!</div>
                 )}
-
                 <div style={{ margin: '10px 0' }}>
                   <MapView pickup={r.pickup} drop={r.drop} pickupCoords={getCoordsForLocation(r.pickup)} dropCoords={getCoordsForLocation(r.drop)} />
                 </div>
@@ -525,10 +667,10 @@ export default function App() {
         <button className={`bn ${screen === 'home' || screen === 'search' || screen === 'confirm' ? 'bn-on' : ''}`} onClick={() => setScreen('home')}>
           <HomeIcon /><span>Home</span>
         </button>
-        <button className={`bn ${screen === 'rides' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) { loadRides(); setScreen('rides') } else setScreen('auth') }}>
+        <button className={`bn ${screen === 'rides' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) { loadRides(); setScreen('rides') } else { setAuthMode('login'); setScreen('auth') } }}>
           <RideIcon /><span>My Rides</span>
         </button>
-        <button className={`bn ${screen === 'profile' ? 'bn-on' : ''}`} onClick={() => loggedIn ? setScreen('profile') : setScreen('auth')}>
+        <button className={`bn ${screen === 'profile' ? 'bn-on' : ''}`} onClick={() => loggedIn ? setScreen('profile') : (setAuthMode('login'), setScreen('auth'))}>
           <UserIcon /><span>Profile</span>
         </button>
       </nav>
