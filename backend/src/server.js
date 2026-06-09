@@ -1,7 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { env } = require("../config/env");
+const { env } = require("./config/env");
 const { memory, id } = require("../store/memory");
 const repo = require("../db/repo");
 const { asyncHandler } = require("../utils/asyncHandler");
