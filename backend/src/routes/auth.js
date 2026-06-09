@@ -14,22 +14,21 @@ const otpStore = new Map();
 
 // Send registration OTP
 router.post(
-  "/auth/send-otp",
+  "/send-otp",
   asyncHandler(async (req, res) => {
     const { phone } = req.body ?? {};
     if (!phone) return res.status(400).json({ error: "phone required" });
 
-    // Check if phone already exists
     if (await repo.isDbUp()) {
       const existing = await repo.getUserByPhone(phone);
       if (existing) return res.status(409).json({ error: "phone already exists" });
     }
 
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
-    otpStore.set(phone, { otp, expires: Date.now() + 5 * 60 * 1000 }) // 5 min expiry
+    otpStore.set(phone, { otp, expires: Date.now() + 5 * 60 * 1000 })
 
     await sendOTP(phone, otp)
-    console.log(`OTP for ${phone}: ${otp}`) // for testing
+    console.log(`OTP for ${phone}: ${otp}`)
 
     return res.json({ ok: true, message: "OTP sent to your phone!" })
   })
@@ -37,7 +36,7 @@ router.post(
 
 // Verify OTP
 router.post(
-  "/auth/verify-otp",
+  "/verify-otp",
   asyncHandler(async (req, res) => {
     const { phone, otp } = req.body ?? {};
     if (!phone || !otp) return res.status(400).json({ error: "phone and otp required" });
@@ -57,7 +56,7 @@ router.post(
 
 // Register
 router.post(
-  "/auth/register",
+  "/register",
   asyncHandler(async (req, res) => {
     const { phone, password, role } = req.body ?? {};
     if (!phone || !password) {
@@ -81,21 +80,14 @@ router.post(
     } else {
       const existing = [...memory.users.values()].find((u) => u.phone === phone);
       if (existing) return res.status(409).json({ error: "phone already exists" });
-      const user = {
-        id: id("usr"),
-        phone,
-        passwordHash,
-        role: userRole,
-      };
+      const user = { id: id("usr"), phone, passwordHash, role: userRole };
       memory.users.set(user.id, user);
       if (userRole === "driver") {
         const driver = {
-          id: id("drv"),
-          userId: user.id,
+          id: id("drv"), userId: user.id,
           name: req.body?.name ?? "Driver",
           vehicleType: req.body?.vehicleType === "auto" ? "auto" : "bike",
-          vehicleNumber: req.body?.vehicleNumber ?? "",
-          active: true,
+          vehicleNumber: req.body?.vehicleNumber ?? "", active: true,
         };
         memory.drivers.set(driver.id, driver);
       }
@@ -107,7 +99,7 @@ router.post(
 
 // Login
 router.post(
-  "/auth/login",
+  "/login",
   asyncHandler(async (req, res) => {
     const { phone, password } = req.body ?? {};
     if (!phone || !password) {
@@ -131,7 +123,7 @@ router.post(
 
 // Forgot password - send OTP
 router.post(
-  "/auth/forgot-password",
+  "/forgot-password",
   asyncHandler(async (req, res) => {
     const { phone } = req.body ?? {};
     if (!phone) return res.status(400).json({ error: "phone required" });
@@ -151,7 +143,7 @@ router.post(
 
 // Reset password
 router.post(
-  "/auth/reset-password",
+  "/reset-password",
   asyncHandler(async (req, res) => {
     const { phone, otp, newPassword } = req.body ?? {};
     if (!phone || !otp || !newPassword) {
@@ -168,7 +160,6 @@ router.post(
 
     otpStore.delete(`reset_${phone}`);
 
-    // Update password
     const passwordHash = await bcrypt.hash(newPassword, 10);
     if (await repo.isDbUp()) {
       const pool = require("../db/pool").getPool();
