@@ -62,6 +62,8 @@ const RidesIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="no
 const UserIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
 
 /* ── Sound alert ─────────────────────────────────────────────────── */
+let ringtoneInterval: ReturnType<typeof setInterval> | null = null
+
 function playAlert() {
   try {
     const ctx = new AudioContext()
@@ -82,6 +84,17 @@ function playAlert() {
     playBeep(880, 0.4, 0.15)
     playBeep(1100, 0.6, 0.3)
   } catch {}
+  if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300])
+}
+
+function startRingtone() {
+  stopRingtone()
+  playAlert()
+  ringtoneInterval = setInterval(playAlert, 2000)
+}
+
+function stopRingtone() {
+  if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null }
 }
 
 /* ── Map Component ────────────────────────────────────────────── */
@@ -137,6 +150,7 @@ export default function App() {
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({})
   const [isOnline, setIsOnline] = useState(true)
   const prevOpenCount = useRef(0)
+  const [newRideAlert, setNewRideAlert] = useState<Ride | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   function showToast(msg: string) { setStatus(msg); setTimeout(() => setStatus(''), 3000) }
@@ -153,6 +167,7 @@ export default function App() {
     if (loggedIn && isOnline) {
       pollRef.current = setInterval(loadOpenRides, 10000)
     }
+    if (!isOnline) { stopRingtone(); setNewRideAlert(null) }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loggedIn, isOnline])
 
@@ -165,9 +180,9 @@ export default function App() {
       const r = await api<{ rides: Ride[] }>('/api/driver/rides/open')
       const newRides = r.rides ?? []
       // Play sound if new rides arrived
-      if (newRides.length > prevOpenCount.current && prevOpenCount.current >= 0) {
-        playAlert()
-        showToast(`🔔 New ride request!`)
+      if (newRides.length > prevOpenCount.current && prevOpenCount.current >= 0 && newRides.length > 0) {
+        startRingtone()
+        setNewRideAlert(newRides[0])
       }
       prevOpenCount.current = newRides.length
       setOpenRides(newRides)
@@ -208,12 +223,19 @@ export default function App() {
 
   async function acceptRide(rideId: string) {
     setLoading(true)
+    stopRingtone()
+    setNewRideAlert(null)
     try {
       await api(`/api/driver/rides/${rideId}/accept`, { method: 'POST' })
       showToast('Ride accepted! 🎉')
       await loadData()
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed to accept') }
     setLoading(false)
+  }
+
+  function dismissAlert() {
+    stopRingtone()
+    setNewRideAlert(null)
   }
 
   async function verifyOTP(rideId: string) {
@@ -247,6 +269,29 @@ export default function App() {
   return (
     <div className="app">
       {status && <div className="toast" onClick={() => setStatus('')}>{status}</div>}
+
+      {/* New Ride Alert Modal */}
+      {newRideAlert && (
+        <div className="ride-alert-overlay">
+          <div className="ride-alert-modal">
+            <div className="ride-alert-pulse">🔔</div>
+            <div className="ride-alert-title">New Ride Request!</div>
+            <div className="dc-route" style={{ justifyContent: 'center', marginTop: 12 }}>
+              <span className="ri-dot-sm green" /> {newRideAlert.pickup}
+            </div>
+            <div className="dc-route" style={{ justifyContent: 'center', marginTop: 6 }}>
+              <span className="ri-dot-sm red" /> {newRideAlert.drop ?? newRideAlert.dropoff}
+            </div>
+            {(newRideAlert.fare?.total ?? newRideAlert.fareTotal) && (
+              <div className="ride-alert-fare">₹{newRideAlert.fare?.total ?? newRideAlert.fareTotal}</div>
+            )}
+            <div className="ride-alert-btns">
+              <button className="btn-ghost full" onClick={dismissAlert} disabled={loading}>Ignore</button>
+              <button className="btn-primary full" onClick={() => acceptRide(newRideAlert.id)} disabled={loading}>Accept 🏍</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <header className="hdr">
