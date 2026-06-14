@@ -91,7 +91,7 @@ function MapView({ pickup, drop, pickupCoords, dropCoords }: { pickup: string; d
 
   useEffect(() => {
     if (!mapRef.current) return
-    import('leaflet').then((L) => {
+    import('leaflet').then(async (L) => {
       delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -107,8 +107,19 @@ function MapView({ pickup, drop, pickupCoords, dropCoords }: { pickup: string; d
       if (pickupCoords) L.marker(pickupCoords, { icon: greenIcon }).addTo(map).bindPopup(`Pickup: ${pickup}`)
       if (dropCoords) L.marker(dropCoords, { icon: redIcon }).addTo(map).bindPopup(`Drop: ${drop}`)
       if (pickupCoords && dropCoords) {
-        L.polyline([pickupCoords, dropCoords], { color: '#FFD600', weight: 4, dashArray: '8,8' }).addTo(map)
-        map.fitBounds(L.latLngBounds([pickupCoords, dropCoords]), { padding: [40, 40] })
+        try {
+          const url = `https://router.project-osrm.org/route/v1/driving/${pickupCoords[1]},${pickupCoords[0]};${dropCoords[1]},${dropCoords[0]}?overview=full&geometries=geojson`
+          const res = await fetch(url)
+          const data = await res.json()
+          if (data.code === 'Ok' && data.routes?.[0]) {
+            const coords = data.routes[0].geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number])
+            L.polyline(coords, { color: '#FFD600', weight: 5, opacity: 0.9 }).addTo(map)
+            map.fitBounds(L.latLngBounds(coords), { padding: [40, 40] })
+          } else throw new Error('no route')
+        } catch {
+          L.polyline([pickupCoords, dropCoords], { color: '#FFD600', weight: 4, dashArray: '8,8' }).addTo(map)
+          map.fitBounds(L.latLngBounds([pickupCoords, dropCoords]), { padding: [40, 40] })
+        }
       }
     })
     return () => { if (mapInstanceRef.current) { (mapInstanceRef.current as { remove: () => void }).remove(); mapInstanceRef.current = null } }
@@ -161,6 +172,8 @@ export default function App() {
   const [newRideAlert, setNewRideAlert] = useState<Ride | null>(null)
   const prevOpenCount = useRef(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const locationRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const socketRef = useRef<unknown>(null)
 
   function showToast(msg: string) { setStatus(msg); setTimeout(() => setStatus(''), 3000) }
 
@@ -184,6 +197,32 @@ export default function App() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loggedIn, isOnline])
 
+  async function startLocationTracking(rideId: string) {
+    try {
+      const { io } = await import('socket.io-client')
+      const socket = io(API_BASE)
+      socketRef.current = socket
+      socket.emit('driver:join', { rideId })
+      locationRef.current = setInterval(() => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(pos => {
+            (socket as { emit: (e: string, d: unknown) => void }).emit('driver:location', {
+              rideId,
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              driverId: localStorage.getItem('tn15d_phone')
+            })
+          })
+        }
+      }, 5000)
+    } catch {}
+  }
+
+  function stopLocationTracking() {
+    if (locationRef.current) { clearInterval(locationRef.current); locationRef.current = null }
+    if (socketRef.current) { (socketRef.current as { disconnect: () => void }).disconnect(); socketRef.current = null }
+  }
+
   async function loadData() { await Promise.all([loadOpenRides(), loadMyRides()]) }
 
   async function loadOpenRides() {
@@ -191,8 +230,7 @@ export default function App() {
       const r = await api<{ rides: Ride[] }>('/api/driver/rides/open')
       const newRides = r.rides ?? []
       if (newRides.length > prevOpenCount.current && prevOpenCount.current >= 0 && newRides.length > 0) {
-        startRingtone()
-        setNewRideAlert(newRides[0])
+        startRingtone(); setNewRideAlert(newRides[0])
       }
       prevOpenCount.current = newRides.length
       setOpenRides(newRides)
@@ -287,7 +325,9 @@ export default function App() {
     setLoading(true); stopRingtone(); setNewRideAlert(null)
     try {
       await api(`/api/driver/rides/${rideId}/accept`, { method: 'POST' })
-      showToast('Ride accepted! 🎉'); await loadData()
+      showToast('Ride accepted! 🎉')
+      await loadData()
+      startLocationTracking(rideId)
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed to accept') }
     setLoading(false)
   }
@@ -300,12 +340,15 @@ export default function App() {
     setLoading(true)
     try {
       await api(`/api/driver/rides/${rideId}/verify-otp`, { method: 'POST', body: JSON.stringify({ otp }) })
-      showToast('OTP verified! Ride started! 🎉'); await loadData()
+      showToast('OTP verified! Ride completed! 🎉')
+      stopLocationTracking()
+      await loadData()
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
     setLoading(false)
   }
 
   function doLogout() {
+    stopLocationTracking()
     localStorage.clear(); setLoggedIn(false); setUserPhone('')
     setOpenRides([]); setMyRides([]); setScreen('home')
   }
@@ -325,7 +368,6 @@ export default function App() {
     <div className="app">
       {status && <div className="toast" onClick={() => setStatus('')}>{status}</div>}
 
-      {/* New Ride Alert Modal */}
       {newRideAlert && (
         <div className="ride-alert-overlay">
           <div className="ride-alert-modal">
@@ -348,7 +390,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Header */}
       <header className="hdr">
         <div className="hdr-brand">
           <span className="hdr-logo">TN<span className="hdr-num">15</span></span>
@@ -364,11 +405,9 @@ export default function App() {
         </div>
       </header>
 
-      {/* Auth Screen */}
       {screen === 'auth' && (
         <div className="screen fade-in">
           <div className="auth-card">
-
             {authMode === 'login' && (
               <>
                 <div className="auth-title">Driver Login</div>
@@ -376,46 +415,31 @@ export default function App() {
                 <input className="inp" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
                 <input className="inp" placeholder="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && doLogin()} />
                 <button className="btn-primary full" onClick={doLogin} disabled={loading}>{loading ? 'Logging in…' : 'Login'}</button>
-                <button className="btn-ghost full" onClick={() => { setAuthMode('register_phone'); setPhone(''); setOtp(''); setPassword(''); setDriverName(''); setVehicleNumber('') }}>
-                  New driver? Register here
-                </button>
-                <button className="btn-ghost full" style={{ color: 'var(--accent)' }} onClick={() => { setAuthMode('forgot_phone'); setPhone('') }}>
-                  Forgot password?
-                </button>
+                <button className="btn-ghost full" onClick={() => { setAuthMode('register_phone'); setPhone(''); setOtp(''); setPassword(''); setDriverName(''); setVehicleNumber('') }}>New driver? Register here</button>
+                <button className="btn-ghost full" style={{ color: 'var(--accent)' }} onClick={() => { setAuthMode('forgot_phone'); setPhone('') }}>Forgot password?</button>
                 <button className="btn-ghost full" onClick={() => setScreen('home')}>← Back</button>
               </>
             )}
-
             {authMode === 'register_phone' && (
               <>
                 <div className="auth-title">Register as Driver</div>
                 <div className="auth-sub">Step 1 of 3 — Enter your details</div>
                 <input className="inp" placeholder="Your name" value={driverName} onChange={e => setDriverName(e.target.value)} />
                 <input className="inp" placeholder="Phone number (10 digits)" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
-                <button className="btn-primary full" onClick={doSendRegOTP} disabled={loading || phone.length !== 10}>
-                  {loading ? 'Sending OTP…' : 'Send OTP 📱'}
-                </button>
+                <button className="btn-primary full" onClick={doSendRegOTP} disabled={loading || phone.length !== 10}>{loading ? 'Sending OTP…' : 'Send OTP 📱'}</button>
                 <button className="btn-ghost full" onClick={() => setAuthMode('login')}>← Back to Login</button>
               </>
             )}
-
             {authMode === 'register_otp' && (
               <>
                 <div className="auth-title">Verify phone 📱</div>
                 <div className="auth-sub">Step 2 of 3 — Enter OTP sent to {phone}</div>
                 <OTPInput value={otp} onChange={setOtp} prefix="rotp" />
-                <button className="btn-primary full" onClick={doVerifyRegOTP} disabled={loading || otp.length !== 4}>
-                  {loading ? 'Verifying…' : 'Verify OTP ✅'}
-                </button>
-                {resendTimer > 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div>
-                ) : (
-                  <button className="btn-ghost full" onClick={doSendRegOTP} disabled={loading}>Resend OTP</button>
-                )}
+                <button className="btn-primary full" onClick={doVerifyRegOTP} disabled={loading || otp.length !== 4}>{loading ? 'Verifying…' : 'Verify OTP ✅'}</button>
+                {resendTimer > 0 ? <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div> : <button className="btn-ghost full" onClick={doSendRegOTP} disabled={loading}>Resend OTP</button>}
                 <button className="btn-ghost full" onClick={() => setAuthMode('register_phone')}>← Back</button>
               </>
             )}
-
             {authMode === 'register_details' && (
               <>
                 <div className="auth-title">Vehicle details 🏍</div>
@@ -426,50 +450,35 @@ export default function App() {
                 </div>
                 <input className="inp" placeholder="Vehicle number (e.g. TN45 AB 1234)" value={vehicleNumber} onChange={e => setVehicleNumber(e.target.value)} />
                 <input className="inp" placeholder="Create password (min 6 chars)" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-                <button className="btn-primary full" onClick={doCompleteRegister} disabled={loading || password.length < 6}>
-                  {loading ? 'Registering…' : 'Complete Registration 🎉'}
-                </button>
+                <button className="btn-primary full" onClick={doCompleteRegister} disabled={loading || password.length < 6}>{loading ? 'Registering…' : 'Complete Registration 🎉'}</button>
                 <button className="btn-ghost full" onClick={() => setAuthMode('register_otp')}>← Back</button>
               </>
             )}
-
             {authMode === 'forgot_phone' && (
               <>
                 <div className="auth-title">Forgot password? 🔑</div>
                 <div className="auth-sub">Enter your registered phone number</div>
                 <input className="inp" placeholder="Phone number (10 digits)" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
-                <button className="btn-primary full" onClick={doForgotSendOTP} disabled={loading || phone.length !== 10}>
-                  {loading ? 'Sending OTP…' : 'Send OTP 📱'}
-                </button>
+                <button className="btn-primary full" onClick={doForgotSendOTP} disabled={loading || phone.length !== 10}>{loading ? 'Sending OTP…' : 'Send OTP 📱'}</button>
                 <button className="btn-ghost full" onClick={() => setAuthMode('login')}>← Back to Login</button>
               </>
             )}
-
             {authMode === 'forgot_otp' && (
               <>
                 <div className="auth-title">Verify phone 📱</div>
                 <div className="auth-sub">Enter OTP sent to {phone}</div>
                 <OTPInput value={otp} onChange={setOtp} prefix="fotp" />
-                <button className="btn-primary full" onClick={doForgotVerifyOTP} disabled={loading || otp.length !== 4}>
-                  {loading ? 'Verifying…' : 'Verify OTP ✅'}
-                </button>
-                {resendTimer > 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div>
-                ) : (
-                  <button className="btn-ghost full" onClick={doForgotSendOTP} disabled={loading}>Resend OTP</button>
-                )}
+                <button className="btn-primary full" onClick={doForgotVerifyOTP} disabled={loading || otp.length !== 4}>{loading ? 'Verifying…' : 'Verify OTP ✅'}</button>
+                {resendTimer > 0 ? <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div> : <button className="btn-ghost full" onClick={doForgotSendOTP} disabled={loading}>Resend OTP</button>}
                 <button className="btn-ghost full" onClick={() => setAuthMode('forgot_phone')}>← Back</button>
               </>
             )}
-
             {authMode === 'forgot_password' && (
               <>
                 <div className="auth-title">New password 🔐</div>
                 <div className="auth-sub">Enter your new password</div>
                 <input className="inp" placeholder="New password (min 6 chars)" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-                <button className="btn-primary full" onClick={doResetPassword} disabled={loading || newPassword.length < 6}>
-                  {loading ? 'Resetting…' : 'Reset Password ✅'}
-                </button>
+                <button className="btn-primary full" onClick={doResetPassword} disabled={loading || newPassword.length < 6}>{loading ? 'Resetting…' : 'Reset Password ✅'}</button>
                 <button className="btn-ghost full" onClick={() => setAuthMode('forgot_otp')}>← Back</button>
               </>
             )}
@@ -477,7 +486,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Home Screen */}
       {screen === 'home' && (
         <div className="screen fade-in">
           {!loggedIn ? (
@@ -491,18 +499,9 @@ export default function App() {
             <>
               <div style={{ padding: '20px 20px 0' }}>
                 <div className="stats-row">
-                  <div className="stat-box">
-                    <div className="stat-val accent">₹{totalEarnings}</div>
-                    <div className="stat-lbl">Total Earned</div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-val">{myRides.filter(r => r.status === 'completed').length}</div>
-                    <div className="stat-lbl">Completed</div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-val green">{openRides.length}</div>
-                    <div className="stat-lbl">Open Requests</div>
-                  </div>
+                  <div className="stat-box"><div className="stat-val accent">₹{totalEarnings}</div><div className="stat-lbl">Total Earned</div></div>
+                  <div className="stat-box"><div className="stat-val">{myRides.filter(r => r.status === 'completed').length}</div><div className="stat-lbl">Completed</div></div>
+                  <div className="stat-box"><div className="stat-val green">{openRides.length}</div><div className="stat-lbl">Open Requests</div></div>
                 </div>
               </div>
 
@@ -517,6 +516,7 @@ export default function App() {
                       </div>
                       <div className="dc-route"><span className="ri-dot-sm green" /> {r.pickup}</div>
                       <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot-sm red" /> {r.drop ?? r.dropoff}</div>
+                      <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 8 }}>📍 Sharing your live location with passenger</div>
                       <MapView pickup={r.pickup} drop={r.drop ?? r.dropoff ?? ''} pickupCoords={getCoords(r.pickup)} dropCoords={getCoords(r.drop ?? r.dropoff ?? '')} />
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Ask passenger for OTP:</div>
@@ -564,7 +564,6 @@ export default function App() {
         </div>
       )}
 
-      {/* My Rides Screen */}
       {screen === 'rides' && (
         <div className="screen fade-in">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px' }}>
@@ -592,7 +591,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Profile Screen */}
       {screen === 'profile' && (
         <div className="screen fade-in">
           <div className="auth-card" style={{ margin: '24px 20px' }}>
@@ -614,7 +612,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom Nav */}
       <nav className="bnav">
         <button className={`bn ${screen === 'home' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) loadData(); setScreen('home') }}>
           <HomeIcon /><span>Home</span>
