@@ -134,3 +134,9 @@ export async function verifyRideOTP(rideId: string, otp: string) {
     body: JSON.stringify({ otp }),
   })
 }
+export async function cancelRide(rideId: string) {
+  return api<{ ok: boolean; message: string }>(`/api/rides/${rideId}/cancel`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+}

@@ -231,3 +231,26 @@ router.post(
 );
 
 module.exports = { ridesRouter: router };
+// Passenger cancels a ride
+router.post(
+  "/rides/:rideId/cancel",
+  authRequired,
+  requireRole("passenger"),
+  asyncHandler(async (req, res) => {
+    if (await repo.isDbUp()) {
+      const pool = require("../db/pool").getPool();
+      const [rows] = await pool.query(
+        "SELECT status FROM rides WHERE id = ? AND passenger_user_id = ?",
+        [req.params.rideId, req.user.sub]
+      );
+      if (!rows[0]) return res.status(404).json({ error: "Ride not found" });
+      if (rows[0].status !== "requested") return res.status(400).json({ error: "Cannot cancel accepted ride" });
+      await pool.query(
+        "UPDATE rides SET status = 'cancelled' WHERE id = ?",
+        [req.params.rideId]
+      );
+      return res.json({ ok: true, message: "Ride cancelled!" });
+    }
+    return res.json({ ok: true });
+  })
+);
