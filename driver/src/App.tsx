@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react'
 import './App.css'
 import 'leaflet/dist/leaflet.css'
 
-/* ── API Base ─────────────────────────────────────────────────── */
 const API_BASE = (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 
 function authHeaders(): Record<string, string> {
@@ -17,7 +16,13 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   return json as T
 }
 
-/* ── Types ─────────────────────────────────────────────────────── */
+async function publicApi<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts?.headers ?? {}) } })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+  return json as T
+}
+
 interface Ride {
   id: string
   pickup: string
@@ -31,19 +36,17 @@ interface Ride {
   createdAt: string
 }
 
-/* ── Kallakurichi locations ─────────────────────────────────────── */
 const KK_LOCATIONS: Record<string, [number, number]> = {
   'Kallakurichi Bus Stand': [11.7393, 79.0066],
-  'Kallakurichi Market': [11.7380, 79.0050],
-  'Kallakurichi Government Hospital': [11.7410, 79.0080],
-  'Kallakurichi Railway Station': [11.7350, 79.0020],
-  'Kallakurichi Collectorate': [11.7420, 79.0090],
-  'Sankarapuram Bus Stand': [11.7550, 78.9800],
-  'Ulundurpet Bus Stand': [11.6700, 79.3200],
-  'Chinnasalem Town': [11.5700, 78.8600],
-  'Tirukoilur Bus Stand': [11.9600, 79.1900],
-  'Vridhachalam Bus Stand': [11.5200, 79.3100],
-  'Thiyagadurgam': [11.8200, 79.0700],
+  'Kallakurichi Government Hospital': [11.7460, 79.0040],
+  'Kallakurichi Railway Station': [11.7280, 78.9950],
+  'Sankarapuram': [11.7800, 78.9500],
+  'Ulundurpet': [11.6700, 79.3200],
+  'Chinnasalem': [11.5700, 78.8600],
+  'Tirukoilur': [11.9600, 79.1900],
+  'Vridhachalam': [11.5200, 79.3100],
+  'Rishivandiyam': [11.7950, 78.9300],
+  'Thiyagadurgam': [11.8300, 79.0750],
 }
 
 function getCoords(name: string): [number, number] | undefined {
@@ -54,14 +57,12 @@ function getCoords(name: string): [number, number] | undefined {
   return undefined
 }
 
-/* ── Icons ─────────────────────────────────────────────────────── */
 const BikeIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6h-5l-3 8h10l-2-8z"/><path d="M12 6V3"/></svg>
 const AutoIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h14l4 6v4h-2"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
 const HomeIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
 const RidesIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
 const UserIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
 
-/* ── Sound alert ─────────────────────────────────────────────────── */
 let ringtoneInterval: ReturnType<typeof setInterval> | null = null
 
 function playAlert() {
@@ -70,34 +71,20 @@ function playAlert() {
     const playBeep = (freq: number, start: number, duration: number) => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.frequency.value = freq
-      osc.type = 'sine'
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.frequency.value = freq; osc.type = 'sine'
       gain.gain.setValueAtTime(0.3, ctx.currentTime + start)
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration)
-      osc.start(ctx.currentTime + start)
-      osc.stop(ctx.currentTime + start + duration)
+      osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + duration)
     }
-    playBeep(880, 0, 0.15)
-    playBeep(1100, 0.2, 0.15)
-    playBeep(880, 0.4, 0.15)
-    playBeep(1100, 0.6, 0.3)
+    playBeep(880, 0, 0.15); playBeep(1100, 0.2, 0.15); playBeep(880, 0.4, 0.15); playBeep(1100, 0.6, 0.3)
   } catch {}
   if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300])
 }
 
-function startRingtone() {
-  stopRingtone()
-  playAlert()
-  ringtoneInterval = setInterval(playAlert, 2000)
-}
+function startRingtone() { stopRingtone(); playAlert(); ringtoneInterval = setInterval(playAlert, 2000) }
+function stopRingtone() { if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null } }
 
-function stopRingtone() {
-  if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null }
-}
-
-/* ── Map Component ────────────────────────────────────────────── */
 function MapView({ pickup, drop, pickupCoords, dropCoords }: { pickup: string; drop: string; pickupCoords?: [number, number]; dropCoords?: [number, number] }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<unknown>(null)
@@ -117,8 +104,8 @@ function MapView({ pickup, drop, pickupCoords, dropCoords }: { pickup: string; d
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map)
       const greenIcon = L.divIcon({ html: `<div style="width:14px;height:14px;background:#00D97E;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`, iconSize: [14, 14], iconAnchor: [7, 7], className: '' })
       const redIcon = L.divIcon({ html: `<div style="width:14px;height:14px;background:#FF4D6A;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`, iconSize: [14, 14], iconAnchor: [7, 7], className: '' })
-      if (pickupCoords) { L.marker(pickupCoords, { icon: greenIcon }).addTo(map).bindPopup(`Pickup: ${pickup}`) }
-      if (dropCoords) { L.marker(dropCoords, { icon: redIcon }).addTo(map).bindPopup(`Drop: ${drop}`) }
+      if (pickupCoords) L.marker(pickupCoords, { icon: greenIcon }).addTo(map).bindPopup(`Pickup: ${pickup}`)
+      if (dropCoords) L.marker(dropCoords, { icon: redIcon }).addTo(map).bindPopup(`Drop: ${drop}`)
       if (pickupCoords && dropCoords) {
         L.polyline([pickupCoords, dropCoords], { color: '#FFD600', weight: 4, dashArray: '8,8' }).addTo(map)
         map.fitBounds(L.latLngBounds([pickupCoords, dropCoords]), { padding: [40, 40] })
@@ -130,27 +117,49 @@ function MapView({ pickup, drop, pickupCoords, dropCoords }: { pickup: string; d
   return <div ref={mapRef} style={{ width: '100%', height: '200px', borderRadius: '16px', overflow: 'hidden', border: '1px solid #2E2E38' }} />
 }
 
-/* ── Main App ─────────────────────────────────────────────────── */
 type Screen = 'home' | 'rides' | 'profile' | 'auth'
+type AuthMode = 'login' | 'register_phone' | 'register_otp' | 'register_details' | 'forgot_phone' | 'forgot_otp' | 'forgot_password'
+
+const OTPInput = ({ value, onChange, prefix }: { value: string; onChange: (v: string) => void; prefix: string }) => (
+  <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+    {[0,1,2,3].map(i => (
+      <input key={i} id={`${prefix}-${i}`} className="inp" maxLength={1}
+        value={value[i] ?? ''}
+        style={{ width: 60, textAlign: 'center', fontSize: 28, fontWeight: 800, padding: '12px 0' }}
+        onChange={e => {
+          const val = e.target.value.replace(/\D/g, '')
+          const arr = value.split('')
+          arr[i] = val
+          onChange(arr.join('').slice(0, 4))
+          if (val && i < 3) document.getElementById(`${prefix}-${i+1}`)?.focus()
+        }}
+        onKeyDown={e => { if (e.key === 'Backspace' && !value[i] && i > 0) document.getElementById(`${prefix}-${i-1}`)?.focus() }}
+      />
+    ))}
+  </div>
+)
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [loggedIn, setLoggedIn] = useState(false)
   const [userPhone, setUserPhone] = useState('')
-  const [isRegistering, setIsRegistering] = useState(false)
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const [driverName, setDriverName] = useState('')
   const [vehicleType, setVehicleType] = useState<'bike' | 'auto'>('bike')
   const [vehicleNumber, setVehicleNumber] = useState('')
+  const [otp, setOtp] = useState('')
+  const [resendTimer, setResendTimer] = useState(0)
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [openRides, setOpenRides] = useState<Ride[]>([])
   const [myRides, setMyRides] = useState<Ride[]>([])
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({})
   const [isOnline, setIsOnline] = useState(true)
-  const prevOpenCount = useRef(0)
   const [newRideAlert, setNewRideAlert] = useState<Ride | null>(null)
+  const prevOpenCount = useRef(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   function showToast(msg: string) { setStatus(msg); setTimeout(() => setStatus(''), 3000) }
@@ -162,24 +171,25 @@ export default function App() {
     if (token && role === 'driver' && p) { setLoggedIn(true); setUserPhone(p); loadData() }
   }, [])
 
-  // Auto-refresh every 10 seconds when online
   useEffect(() => {
-    if (loggedIn && isOnline) {
-      pollRef.current = setInterval(loadOpenRides, 10000)
+    if (resendTimer > 0) {
+      const t = setTimeout(() => setResendTimer(r => r - 1), 1000)
+      return () => clearTimeout(t)
     }
+  }, [resendTimer])
+
+  useEffect(() => {
+    if (loggedIn && isOnline) { pollRef.current = setInterval(loadOpenRides, 10000) }
     if (!isOnline) { stopRingtone(); setNewRideAlert(null) }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loggedIn, isOnline])
 
-  async function loadData() {
-    await Promise.all([loadOpenRides(), loadMyRides()])
-  }
+  async function loadData() { await Promise.all([loadOpenRides(), loadMyRides()]) }
 
   async function loadOpenRides() {
     try {
       const r = await api<{ rides: Ride[] }>('/api/driver/rides/open')
       const newRides = r.rides ?? []
-      // Play sound if new rides arrived
       if (newRides.length > prevOpenCount.current && prevOpenCount.current >= 0 && newRides.length > 0) {
         startRingtone()
         setNewRideAlert(newRides[0])
@@ -190,53 +200,99 @@ export default function App() {
   }
 
   async function loadMyRides() {
-    try {
-      const r = await api<{ rides: Ride[] }>('/api/rides/mine')
-      setMyRides(r.rides ?? [])
-    } catch {}
+    try { const r = await api<{ rides: Ride[] }>('/api/rides/mine'); setMyRides(r.rides ?? []) } catch {}
   }
 
   async function doLogin() {
     setLoading(true)
     try {
-      const r = await api<{ token: string; role: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ phone, password }) })
+      const r = await publicApi<{ token: string; role: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ phone, password }) })
       if (r.role !== 'driver') { showToast('Use TN15 passenger app!'); setLoading(false); return }
       localStorage.setItem('tn15d_token', r.token)
       localStorage.setItem('tn15d_role', r.role)
       localStorage.setItem('tn15d_phone', phone)
       setLoggedIn(true); setUserPhone(phone); setScreen('home')
-      await loadData()
-      showToast('Welcome back! 👋')
+      await loadData(); showToast('Welcome back! 👋')
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Login failed') }
     setLoading(false)
   }
 
-  async function doRegister() {
+  async function doSendRegOTP() {
+    if (!phone || phone.length !== 10) { showToast('Enter valid 10 digit phone number'); return }
+    if (!driverName) { showToast('Enter your name'); return }
     setLoading(true)
     try {
-      await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ phone, password, role: 'driver', name: driverName, vehicleType, vehicleNumber }) })
-      showToast('Registered! Please login.')
-      setIsRegistering(false)
+      await publicApi('/api/auth/send-otp', { method: 'POST', body: JSON.stringify({ phone }) })
+      setResendTimer(60); setAuthMode('register_otp')
+      showToast('OTP sent to ' + phone + '! 📱')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed to send OTP') }
+    setLoading(false)
+  }
+
+  async function doVerifyRegOTP() {
+    if (!otp || otp.length !== 4) { showToast('Enter 4 digit OTP'); return }
+    setLoading(true)
+    try {
+      await publicApi('/api/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, otp }) })
+      setAuthMode('register_details'); showToast('OTP verified! ✅')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
+    setLoading(false)
+  }
+
+  async function doCompleteRegister() {
+    if (!password || password.length < 6) { showToast('Password must be at least 6 characters'); return }
+    if (!vehicleNumber) { showToast('Enter vehicle number'); return }
+    setLoading(true)
+    try {
+      await publicApi('/api/auth/register', { method: 'POST', body: JSON.stringify({ phone, password, role: 'driver', name: driverName, vehicleType, vehicleNumber }) })
+      showToast('Registered! Please login. 🎉')
+      setAuthMode('login'); setOtp(''); setPassword('')
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Registration failed') }
     setLoading(false)
   }
 
-  async function acceptRide(rideId: string) {
+  async function doForgotSendOTP() {
+    if (!phone || phone.length !== 10) { showToast('Enter valid 10 digit phone number'); return }
     setLoading(true)
-    stopRingtone()
-    setNewRideAlert(null)
+    try {
+      await publicApi('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ phone }) })
+      setResendTimer(60); setAuthMode('forgot_otp')
+      showToast('OTP sent to ' + phone + '! 📱')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Phone not registered') }
+    setLoading(false)
+  }
+
+  async function doForgotVerifyOTP() {
+    if (!otp || otp.length !== 4) { showToast('Enter 4 digit OTP'); return }
+    setLoading(true)
+    try {
+      await publicApi('/api/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, otp }) })
+      setAuthMode('forgot_password'); showToast('OTP verified! ✅')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
+    setLoading(false)
+  }
+
+  async function doResetPassword() {
+    if (!newPassword || newPassword.length < 6) { showToast('Password must be at least 6 characters'); return }
+    setLoading(true)
+    try {
+      await publicApi('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ phone, otp, newPassword }) })
+      showToast('Password reset! Please login. 🎉')
+      setAuthMode('login'); setOtp(''); setNewPassword('')
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Reset failed') }
+    setLoading(false)
+  }
+
+  async function acceptRide(rideId: string) {
+    setLoading(true); stopRingtone(); setNewRideAlert(null)
     try {
       await api(`/api/driver/rides/${rideId}/accept`, { method: 'POST' })
-      showToast('Ride accepted! 🎉')
-      await loadData()
+      showToast('Ride accepted! 🎉'); await loadData()
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed to accept') }
     setLoading(false)
   }
 
-  function dismissAlert() {
-    stopRingtone()
-    setNewRideAlert(null)
-  }
+  function dismissAlert() { stopRingtone(); setNewRideAlert(null) }
 
   async function verifyOTP(rideId: string) {
     const otp = otpInputs[rideId]
@@ -244,8 +300,7 @@ export default function App() {
     setLoading(true)
     try {
       await api(`/api/driver/rides/${rideId}/verify-otp`, { method: 'POST', body: JSON.stringify({ otp }) })
-      showToast('OTP verified! Ride started! 🎉')
-      await loadData()
+      showToast('OTP verified! Ride started! 🎉'); await loadData()
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
     setLoading(false)
   }
@@ -305,7 +360,7 @@ export default function App() {
               {isOnline ? '🟢 Online' : '🔴 Offline'}
             </button>
           )}
-          {!loggedIn && <button className="btn-accent sm" onClick={() => setScreen('auth')}>Login</button>}
+          {!loggedIn && <button className="btn-accent sm" onClick={() => { setAuthMode('login'); setScreen('auth') }}>Login</button>}
         </div>
       </header>
 
@@ -313,30 +368,111 @@ export default function App() {
       {screen === 'auth' && (
         <div className="screen fade-in">
           <div className="auth-card">
-            <div className="auth-title">{isRegistering ? 'Register as Driver' : 'Driver Login'}</div>
-            <div className="auth-sub">TN15 Kallakurichi — Driver App</div>
-            {!isRegistering ? (
+
+            {authMode === 'login' && (
               <>
+                <div className="auth-title">Driver Login</div>
+                <div className="auth-sub">TN15 Kallakurichi — Driver App</div>
                 <input className="inp" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
                 <input className="inp" placeholder="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && doLogin()} />
                 <button className="btn-primary full" onClick={doLogin} disabled={loading}>{loading ? 'Logging in…' : 'Login'}</button>
-                <button className="btn-ghost full" onClick={() => setIsRegistering(true)}>New driver? Register here</button>
+                <button className="btn-ghost full" onClick={() => { setAuthMode('register_phone'); setPhone(''); setOtp(''); setPassword(''); setDriverName(''); setVehicleNumber('') }}>
+                  New driver? Register here
+                </button>
+                <button className="btn-ghost full" style={{ color: 'var(--accent)' }} onClick={() => { setAuthMode('forgot_phone'); setPhone('') }}>
+                  Forgot password?
+                </button>
+                <button className="btn-ghost full" onClick={() => setScreen('home')}>← Back</button>
               </>
-            ) : (
+            )}
+
+            {authMode === 'register_phone' && (
               <>
+                <div className="auth-title">Register as Driver</div>
+                <div className="auth-sub">Step 1 of 3 — Enter your details</div>
                 <input className="inp" placeholder="Your name" value={driverName} onChange={e => setDriverName(e.target.value)} />
-                <input className="inp" placeholder="Phone number" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
-                <input className="inp" placeholder="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+                <input className="inp" placeholder="Phone number (10 digits)" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
+                <button className="btn-primary full" onClick={doSendRegOTP} disabled={loading || phone.length !== 10}>
+                  {loading ? 'Sending OTP…' : 'Send OTP 📱'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('login')}>← Back to Login</button>
+              </>
+            )}
+
+            {authMode === 'register_otp' && (
+              <>
+                <div className="auth-title">Verify phone 📱</div>
+                <div className="auth-sub">Step 2 of 3 — Enter OTP sent to {phone}</div>
+                <OTPInput value={otp} onChange={setOtp} prefix="rotp" />
+                <button className="btn-primary full" onClick={doVerifyRegOTP} disabled={loading || otp.length !== 4}>
+                  {loading ? 'Verifying…' : 'Verify OTP ✅'}
+                </button>
+                {resendTimer > 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div>
+                ) : (
+                  <button className="btn-ghost full" onClick={doSendRegOTP} disabled={loading}>Resend OTP</button>
+                )}
+                <button className="btn-ghost full" onClick={() => setAuthMode('register_phone')}>← Back</button>
+              </>
+            )}
+
+            {authMode === 'register_details' && (
+              <>
+                <div className="auth-title">Vehicle details 🏍</div>
+                <div className="auth-sub">Step 3 of 3 — Set up your vehicle & password</div>
                 <div className="seg-row">
                   <button className={`seg ${vehicleType === 'bike' ? 'seg-on' : ''}`} onClick={() => setVehicleType('bike')}>🏍 Bike</button>
                   <button className={`seg ${vehicleType === 'auto' ? 'seg-on' : ''}`} onClick={() => setVehicleType('auto')}>🛺 Auto</button>
                 </div>
                 <input className="inp" placeholder="Vehicle number (e.g. TN45 AB 1234)" value={vehicleNumber} onChange={e => setVehicleNumber(e.target.value)} />
-                <button className="btn-primary full" onClick={doRegister} disabled={loading}>{loading ? 'Registering…' : 'Register'}</button>
-                <button className="btn-ghost full" onClick={() => setIsRegistering(false)}>Already registered? Login</button>
+                <input className="inp" placeholder="Create password (min 6 chars)" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+                <button className="btn-primary full" onClick={doCompleteRegister} disabled={loading || password.length < 6}>
+                  {loading ? 'Registering…' : 'Complete Registration 🎉'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('register_otp')}>← Back</button>
               </>
             )}
-            <button className="btn-ghost full" onClick={() => setScreen('home')} style={{ marginTop: 4 }}>← Back</button>
+
+            {authMode === 'forgot_phone' && (
+              <>
+                <div className="auth-title">Forgot password? 🔑</div>
+                <div className="auth-sub">Enter your registered phone number</div>
+                <input className="inp" placeholder="Phone number (10 digits)" value={phone} onChange={e => setPhone(e.target.value)} type="tel" maxLength={10} />
+                <button className="btn-primary full" onClick={doForgotSendOTP} disabled={loading || phone.length !== 10}>
+                  {loading ? 'Sending OTP…' : 'Send OTP 📱'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('login')}>← Back to Login</button>
+              </>
+            )}
+
+            {authMode === 'forgot_otp' && (
+              <>
+                <div className="auth-title">Verify phone 📱</div>
+                <div className="auth-sub">Enter OTP sent to {phone}</div>
+                <OTPInput value={otp} onChange={setOtp} prefix="fotp" />
+                <button className="btn-primary full" onClick={doForgotVerifyOTP} disabled={loading || otp.length !== 4}>
+                  {loading ? 'Verifying…' : 'Verify OTP ✅'}
+                </button>
+                {resendTimer > 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Resend OTP in {resendTimer}s</div>
+                ) : (
+                  <button className="btn-ghost full" onClick={doForgotSendOTP} disabled={loading}>Resend OTP</button>
+                )}
+                <button className="btn-ghost full" onClick={() => setAuthMode('forgot_phone')}>← Back</button>
+              </>
+            )}
+
+            {authMode === 'forgot_password' && (
+              <>
+                <div className="auth-title">New password 🔐</div>
+                <div className="auth-sub">Enter your new password</div>
+                <input className="inp" placeholder="New password (min 6 chars)" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                <button className="btn-primary full" onClick={doResetPassword} disabled={loading || newPassword.length < 6}>
+                  {loading ? 'Resetting…' : 'Reset Password ✅'}
+                </button>
+                <button className="btn-ghost full" onClick={() => setAuthMode('forgot_otp')}>← Back</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -349,11 +485,10 @@ export default function App() {
               <div style={{ fontSize: 60, marginBottom: 16 }}>🏍</div>
               <div className="hero-title" style={{ fontSize: 28, marginBottom: 8 }}>TN15 Driver</div>
               <div style={{ color: 'var(--muted)', marginBottom: 24 }}>Kallakurichi Bike & Auto Taxi</div>
-              <button className="btn-primary full" onClick={() => setScreen('auth')}>Login to start driving</button>
+              <button className="btn-primary full" onClick={() => { setAuthMode('login'); setScreen('auth') }}>Login to start driving</button>
             </div>
           ) : (
             <>
-              {/* Stats */}
               <div style={{ padding: '20px 20px 0' }}>
                 <div className="stats-row">
                   <div className="stat-box">
@@ -371,7 +506,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Active ride — OTP verification */}
               {acceptedRides.length > 0 && (
                 <div style={{ padding: '16px 20px 0' }}>
                   <div className="sec-title">Active Ride 🔥</div>
@@ -398,7 +532,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Open ride requests */}
               <div style={{ padding: '16px 20px 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div className="sec-title">Ride Requests</div>
@@ -420,9 +553,7 @@ export default function App() {
                       <MapView pickup={r.pickup} drop={r.drop ?? r.dropoff ?? ''} pickupCoords={getCoords(r.pickup)} dropCoords={getCoords(r.drop ?? r.dropoff ?? '')} />
                       <div className="dc-row" style={{ marginTop: 12 }}>
                         <span className="muted-text">{new Date(r.createdAt).toLocaleTimeString()}</span>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button className="btn-accent" onClick={() => acceptRide(r.id)} disabled={loading}>Accept 🏍</button>
-                        </div>
+                        <button className="btn-accent" onClick={() => acceptRide(r.id)} disabled={loading}>Accept 🏍</button>
                       </div>
                     </div>
                   ))
@@ -488,10 +619,10 @@ export default function App() {
         <button className={`bn ${screen === 'home' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) loadData(); setScreen('home') }}>
           <HomeIcon /><span>Home</span>
         </button>
-        <button className={`bn ${screen === 'rides' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) { loadMyRides(); setScreen('rides') } else setScreen('auth') }}>
+        <button className={`bn ${screen === 'rides' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) { loadMyRides(); setScreen('rides') } else { setAuthMode('login'); setScreen('auth') } }}>
           <RidesIcon /><span>My Rides</span>
         </button>
-        <button className={`bn ${screen === 'profile' ? 'bn-on' : ''}`} onClick={() => loggedIn ? setScreen('profile') : setScreen('auth')}>
+        <button className={`bn ${screen === 'profile' ? 'bn-on' : ''}`} onClick={() => { if (loggedIn) setScreen('profile'); else { setAuthMode('login'); setScreen('auth') } }}>
           <UserIcon /><span>Profile</span>
         </button>
       </nav>
