@@ -15,7 +15,9 @@ function estimateFare(vehicleType, km) {
   const vt = vehicleType === "auto" ? "auto" : "bike";
   const fare = memory.fares[vt];
   const distance = Number(km);
-  const total = fare.baseFare + fare.perKm * Math.max(0, distance);
+  // Rapido style: base fare covers first 2km, then per km after
+  const chargeableKm = Math.max(0, distance - 2)
+  const total = fare.baseFare + fare.perKm * chargeableKm;
   return { vehicleType: vt, km: distance, ...fare, total: Math.round(total) };
 }
 

@@ -284,12 +284,28 @@ export default function App() {
     else { setDrop(loc.name); setDropCoords(loc.coords); newDropCoords = loc.coords }
     setSearchQuery('')
     if (newPickupCoords && newDropCoords) {
+  // Use OSRM real road distance
+  const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${newPickupCoords[1]},${newPickupCoords[0]};${newDropCoords[1]},${newDropCoords[0]}?overview=false`
+  fetch(osrmUrl)
+    .then(r => r.json())
+    .then(data => {
+      if (data.code === 'Ok' && data.routes?.[0]) {
+        const roadKm = Math.round(data.routes[0].distance / 100) / 10
+        setKm(roadKm)
+        setTimeout(() => calcFare(roadKm), 100)
+      } else {
+        const dist = calculateDistance(newPickupCoords, newDropCoords)
+        setKm(dist)
+        setTimeout(() => calcFare(dist), 100)
+      }
+    })
+    .catch(() => {
       const dist = calculateDistance(newPickupCoords, newDropCoords)
-      setKm(dist); setTimeout(() => calcFare(dist), 100)
-    }
-    setScreen('confirm')
+      setKm(dist)
+      setTimeout(() => calcFare(dist), 100)
+    })
   }
-
+}
   const statusColor = (s: string) => {
     if (s === 'requested') return '#FFB800'
     if (s === 'accepted') return '#00D97E'
