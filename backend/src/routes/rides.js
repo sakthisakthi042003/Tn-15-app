@@ -229,6 +229,29 @@ router.post(
     return res.json({ ok: true });
   })
 );
+// Driver confirms cash collected
+router.post(
+  "/driver/rides/:rideId/cash-collected",
+  authRequired,
+  requireRole("driver"),
+  asyncHandler(async (req, res) => {
+    if (await repo.isDbUp()) {
+      const pool = require("../db/pool").getPool();
+      const [rows] = await pool.query(
+        "SELECT status, fare_total FROM rides WHERE id = ?",
+        [req.params.rideId]
+      );
+      if (!rows[0]) return res.status(404).json({ error: "Ride not found" });
+      if (rows[0].status !== "completed") return res.status(400).json({ error: "Ride not completed yet" });
+      await pool.query(
+        "UPDATE rides SET cash_collected = 1 WHERE id = ?",
+        [req.params.rideId]
+      );
+      return res.json({ ok: true, message: "Cash collected confirmed!" });
+    }
+    return res.json({ ok: true });
+  })
+);
 
 module.exports = { ridesRouter: router };
 // Passenger cancels a ride

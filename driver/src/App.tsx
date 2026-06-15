@@ -34,6 +34,7 @@ interface Ride {
   fareTotal?: number
   km?: number
   createdAt: string
+  cash_collected?: number
 }
 
 const KK_LOCATIONS: Record<string, [number, number]> = {
@@ -207,9 +208,7 @@ export default function App() {
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(pos => {
             (socket as { emit: (e: string, d: unknown) => void }).emit('driver:location', {
-              rideId,
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
+              rideId, lat: pos.coords.latitude, lng: pos.coords.longitude,
               driverId: localStorage.getItem('tn15d_phone')
             })
           })
@@ -344,6 +343,16 @@ export default function App() {
       stopLocationTracking()
       await loadData()
     } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Invalid OTP') }
+    setLoading(false)
+  }
+
+  async function confirmCashCollected(rideId: string, fare: number) {
+    setLoading(true)
+    try {
+      await api(`/api/driver/rides/${rideId}/cash-collected`, { method: 'POST' })
+      showToast(`✅ Cash ₹${fare} collected!`)
+      await loadData()
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed') }
     setLoading(false)
   }
 
@@ -516,7 +525,7 @@ export default function App() {
                       </div>
                       <div className="dc-route"><span className="ri-dot-sm green" /> {r.pickup}</div>
                       <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot-sm red" /> {r.drop ?? r.dropoff}</div>
-                      <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 8 }}>📍 Sharing your live location with passenger</div>
+                      <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 8 }}>📍 Sharing live location with passenger</div>
                       <MapView pickup={r.pickup} drop={r.drop ?? r.dropoff ?? ''} pickupCoords={getCoords(r.pickup)} dropCoords={getCoords(r.drop ?? r.dropoff ?? '')} />
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Ask passenger for OTP:</div>
@@ -581,6 +590,26 @@ export default function App() {
                 </div>
                 <div className="dc-route"><span className="ri-dot-sm green" /> {r.pickup}</div>
                 <div className="dc-route" style={{ marginTop: 4 }}><span className="ri-dot-sm red" /> {r.drop ?? r.dropoff}</div>
+
+                {/* Cash collection for completed rides */}
+                {r.status === 'completed' && !r.cash_collected && (
+                  <div style={{ background: 'rgba(255,214,0,0.1)', border: '2px solid #FFD600', borderRadius: 12, padding: '14px 16px', margin: '10px 0', textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>💵 Collect cash from passenger</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: '#FFD600', marginBottom: 10 }}>
+                      ₹{r.fare?.total ?? r.fareTotal}
+                    </div>
+                    <button className="btn-primary full" onClick={() => confirmCashCollected(r.id, r.fare?.total ?? r.fareTotal ?? 0)} disabled={loading}>
+                      ✅ Cash Collected
+                    </button>
+                  </div>
+                )}
+
+                {r.status === 'completed' && r.cash_collected === 1 && (
+                  <div style={{ background: 'rgba(0,217,126,0.1)', border: '1px solid rgba(0,217,126,0.3)', borderRadius: 12, padding: '10px 16px', margin: '10px 0', textAlign: 'center', fontSize: 13, color: '#00D97E' }}>
+                    ✅ Cash collected!
+                  </div>
+                )}
+
                 <div className="dc-row" style={{ marginTop: 8 }}>
                   <span className="muted-text">{new Date(r.createdAt).toLocaleString()}</span>
                   {(r.fare?.total ?? r.fareTotal) && <span className="dc-fare">₹{r.fare?.total ?? r.fareTotal}</span>}

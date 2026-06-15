@@ -137,7 +137,7 @@ async function listRidesForPassenger(userId) {
 async function listRidesForDriver(driverId) {
   const pool = getPool();
   const [rows] = await pool.query(
-    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, otp, otp_verified, created_at AS createdAt FROM rides WHERE driver_id = ? ORDER BY created_at DESC",
+    "SELECT id, passenger_user_id AS passengerUserId, driver_id AS driverId, pickup, dropoff, vehicle_type AS vehicleType, km, fare_total AS fareTotal, status, otp, otp_verified, cash_collected, created_at AS createdAt FROM rides WHERE driver_id = ? ORDER BY created_at DESC",
     [driverId]
   );
   return rows.map((r) => ({
