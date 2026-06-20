@@ -555,3 +555,56 @@ button, a { cursor: pointer; border: none; background: none; font-family: inheri
   margin-top: -8px;
   margin-bottom: 4px;
 }
+/* ── Rapido style search bar ──────────────────────────────────── */
+.rapido-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 20px 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background .15s;
+  font-size: 15px;
+  color: var(--text);
+}
+.rapido-search:hover { background: var(--bg3); }
+
+/* ── Search result items ──────────────────────────────────────── */
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.search-result-item:hover { background: var(--bg2); }
+.sri-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Auth subtitle ────────────────────────────────────────────── */
+.auth-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: -8px;
+  margin-bottom: 4px;
+}
+
+/* ── Search loading spinner ───────────────────────────────────── */
+.spinner-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  animation: spinPulse 1s infinite ease-in-out;
+}
+@keyframes spinPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}

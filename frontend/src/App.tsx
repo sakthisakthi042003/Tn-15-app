@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import './App.css'
 import 'leaflet/dist/leaflet.css'
 import MapView from './mapview'
@@ -57,6 +57,7 @@ const UserIcon = () => (
   </svg>
 )
 
+/* ─── Popular quick-pick locations (shown when search box is empty) ───── */
 const KK_LOCATIONS: { name: string; coords: [number, number] }[] = [
   { name: 'Kallakurichi Bus Stand', coords: [11.7393, 79.0066] },
   { name: 'Kallakurichi Government Hospital', coords: [11.7460, 79.0040] },
@@ -70,10 +71,10 @@ const KK_LOCATIONS: { name: string; coords: [number, number] }[] = [
   { name: 'Thiyagadurgam', coords: [11.8300, 79.0750] },
 ]
 
-function searchLocations(query: string) {
+function searchLocalLocations(query: string) {
   if (!query) return []
   const q = query.toLowerCase()
-  return KK_LOCATIONS.filter(l => l.name.toLowerCase().includes(q)).slice(0, 7)
+  return KK_LOCATIONS.filter(l => l.name.toLowerCase().includes(q)).slice(0, 5)
 }
 
 function getCoordsForLocation(name: string): [number, number] | undefined {
@@ -82,6 +83,25 @@ function getCoordsForLocation(name: string): [number, number] | undefined {
     l.name.toLowerCase().includes(name.toLowerCase())
   )
   return found?.coords
+}
+
+/* ─── Live place search via OpenStreetMap Nominatim (free, no key) ───── */
+async function searchNominatim(query: string): Promise<{ name: string; coords: [number, number] }[]> {
+  if (!query || query.length < 2) return []
+  try {
+    // Bounding box roughly covering Kallakurichi district for relevant results
+    const viewbox = '78.6,12.1,79.6,11.3' // left,top,right,bottom
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ', Kallakurichi, Tamil Nadu, India')}&format=json&viewbox=${viewbox}&bounded=1&limit=8&addressdetails=1`
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.map((item: { display_name: string; lat: string; lon: string }) => ({
+      name: item.display_name.split(',').slice(0, 3).join(',').trim(),
+      coords: [parseFloat(item.lat), parseFloat(item.lon)] as [number, number],
+    }))
+  } catch {
+    return []
+  }
 }
 
 function calculateDistance(coord1: [number, number], coord2: [number, number]): number {
@@ -139,10 +159,13 @@ export default function App() {
   const [dropCoords, setDropCoords] = useState<[number, number] | undefined>()
   const [activeInput, setActiveInput] = useState<'pickup' | 'drop'>('pickup')
   const [searchQuery, setSearchQuery] = useState('')
+  const [liveResults, setLiveResults] = useState<{ name: string; coords: [number, number] }[]>([])
+  const [searching, setSearching] = useState(false)
   const [vehicleType, setVehicleType] = useState<'bike' | 'auto'>('bike')
   const [km, setKm] = useState(0)
   const [fare, setFare] = useState<number | null>(null)
   const [rides, setRides] = useState<Ride[]>([])
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     health().then(setBackend).catch(() => setBackend({ ok: false } as never))
@@ -158,6 +181,23 @@ export default function App() {
       return () => clearTimeout(t)
     }
   }, [resendTimer])
+
+  // Debounced live search whenever the search query changes
+  useEffect(() => {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current)
+    if (!searchQuery || searchQuery.length < 2) {
+      setLiveResults([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    searchDebounce.current = setTimeout(async () => {
+      const results = await searchNominatim(searchQuery)
+      setLiveResults(results)
+      setSearching(false)
+    }, 500)
+    return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current) }
+  }, [searchQuery])
 
   async function loadRides() {
     try { const r = await myRides(); setRides(r.rides) } catch {}
@@ -280,7 +320,7 @@ export default function App() {
     let newDropCoords = dropCoords
     if (activeInput === 'pickup') { setPickup(loc.name); setPickupCoords(loc.coords); newPickupCoords = loc.coords }
     else { setDrop(loc.name); setDropCoords(loc.coords); newDropCoords = loc.coords }
-    setSearchQuery('')
+    setSearchQuery(''); setLiveResults([])
     if (newPickupCoords && newDropCoords) {
       const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${newPickupCoords[1]},${newPickupCoords[0]};${newDropCoords[1]},${newDropCoords[0]}?overview=false`
       fetch(osrmUrl).then(r => r.json()).then(data => {
@@ -307,7 +347,7 @@ export default function App() {
     return '#888'
   }
 
-  const suggestions = searchLocations(searchQuery)
+  const localSuggestions = searchLocalLocations(searchQuery)
 
   return (
     <div className="app">
@@ -414,12 +454,12 @@ export default function App() {
           <div style={{ padding: '0 20px 16px' }}>
             <MapView pickup={pickup || 'Kallakurichi Bus Stand'} drop={drop} pickupCoords={pickupCoords || [11.7393, 79.0066]} dropCoords={dropCoords} />
           </div>
-          <div className="rapido-search" onClick={() => { if (!loggedIn) { setAuthMode('login'); setScreen('auth'); return } setActiveInput('pickup'); setSearchQuery(''); setScreen('search') }}>
+          <div className="rapido-search" onClick={() => { if (!loggedIn) { setAuthMode('login'); setScreen('auth'); return } setActiveInput('pickup'); setSearchQuery(''); setLiveResults([]); setScreen('search') }}>
             <SearchIcon />
             <span style={{ color: pickup ? 'var(--text)' : 'var(--muted)' }}>{pickup || 'Search pickup location…'}</span>
           </div>
           {pickup && (
-            <div className="rapido-search" style={{ marginTop: 8 }} onClick={() => { setActiveInput('drop'); setSearchQuery(''); setScreen('search') }}>
+            <div className="rapido-search" style={{ marginTop: 8 }} onClick={() => { setActiveInput('drop'); setSearchQuery(''); setLiveResults([]); setScreen('search') }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
               <span style={{ color: drop ? 'var(--text)' : 'var(--muted)' }}>{drop || 'Search drop location…'}</span>
             </div>
@@ -457,21 +497,33 @@ export default function App() {
         </div>
       )}
 
+      {/* ── SEARCH SCREEN — now with live Nominatim place search ── */}
       {screen === 'search' && (
         <div className="screen fade-in" style={{ background: 'var(--bg)' }}>
           <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <button onClick={() => setScreen(pickup && drop ? 'confirm' : 'home')} style={{ color: 'var(--text)' }}><BackIcon /></button>
             <div style={{ flex: 1, position: 'relative' }}>
-              <input className="inp" placeholder={activeInput === 'pickup' ? 'Search pickup…' : 'Search drop…'}
+              <input className="inp" placeholder={activeInput === 'pickup' ? 'Search any place in Kallakurichi…' : 'Search any place in Kallakurichi…'}
                 value={searchQuery} onChange={e => setSearchQuery(e.target.value)} autoFocus style={{ paddingLeft: 40 }} />
               <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }}><SearchIcon /></div>
             </div>
           </div>
-          <div style={{ padding: '0 20px 8px', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
-            {searchQuery ? 'Search results' : 'Popular in Kallakurichi'}
-          </div>
+
+          {!searchQuery && (
+            <div style={{ padding: '0 20px 8px', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Popular in Kallakurichi
+            </div>
+          )}
+
+          {searchQuery && (
+            <div style={{ padding: '0 20px 8px', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {searching ? 'Searching…' : 'Search results'}
+              {searching && <span className="spinner-dot" />}
+            </div>
+          )}
+
           <div style={{ overflow: 'auto' }}>
-            {(searchQuery ? suggestions : KK_LOCATIONS.slice(0, 10)).map(loc => (
+            {!searchQuery && KK_LOCATIONS.map(loc => (
               <div key={loc.name} className="search-result-item" onClick={() => selectLocation(loc)}>
                 <div className="sri-dot" style={{ background: activeInput === 'pickup' ? 'var(--green)' : 'var(--red)' }} />
                 <div>
@@ -480,7 +532,34 @@ export default function App() {
                 </div>
               </div>
             ))}
-            {searchQuery && suggestions.length === 0 && <div className="empty">No locations found for "{searchQuery}"</div>}
+
+            {/* Quick local matches first (instant, no network wait) */}
+            {searchQuery && localSuggestions.map(loc => (
+              <div key={'local-' + loc.name} className="search-result-item" onClick={() => selectLocation(loc)}>
+                <div className="sri-dot" style={{ background: activeInput === 'pickup' ? 'var(--green)' : 'var(--red)' }} />
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 500 }}>{loc.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Popular place</div>
+                </div>
+              </div>
+            ))}
+
+            {/* Live results from OpenStreetMap covering all of Kallakurichi */}
+            {searchQuery && liveResults
+              .filter(r => !localSuggestions.some(l => l.name.toLowerCase() === r.name.toLowerCase()))
+              .map((loc, idx) => (
+              <div key={'live-' + idx} className="search-result-item" onClick={() => selectLocation(loc)}>
+                <div className="sri-dot" style={{ background: activeInput === 'pickup' ? 'var(--green)' : 'var(--red)' }} />
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 500 }}>{loc.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Kallakurichi area</div>
+                </div>
+              </div>
+            ))}
+
+            {searchQuery && !searching && localSuggestions.length === 0 && liveResults.length === 0 && (
+              <div className="empty">No locations found for "{searchQuery}"</div>
+            )}
           </div>
         </div>
       )}
@@ -491,7 +570,7 @@ export default function App() {
           <div className="book-card">
             <div className="sec-title">Confirm your ride</div>
             <div className="route-inputs">
-              <div className="ri-row" onClick={() => { setActiveInput('pickup'); setSearchQuery(''); setScreen('search') }}>
+              <div className="ri-row" onClick={() => { setActiveInput('pickup'); setSearchQuery(''); setLiveResults([]); setScreen('search') }}>
                 <span className="ri-dot green" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>Pickup</div>
@@ -499,7 +578,7 @@ export default function App() {
                 </div>
               </div>
               <div className="ri-line" />
-              <div className="ri-row" onClick={() => { setActiveInput('drop'); setSearchQuery(''); setScreen('search') }}>
+              <div className="ri-row" onClick={() => { setActiveInput('drop'); setSearchQuery(''); setLiveResults([]); setScreen('search') }}>
                 <span className="ri-dot red" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>Drop</div>
@@ -570,7 +649,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Cancel button - only for requested rides */}
                 {r.status === 'requested' && (
                   <button className="btn-ghost full" style={{ color: 'var(--red)', marginTop: 8 }}
                     onClick={() => doCancelRide(r.id)} disabled={loading}>
